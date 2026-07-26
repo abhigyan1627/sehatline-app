@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4f8f8">
+  <meta name="description" content="SehatLine Doctor — appointments, patients, clinic queue and practice insights in one calm workspace.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="SehatLine Doctor">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./app-icon.png" type="image/png">
+  <title>SehatLine Doctor</title>
+  <link rel="stylesheet" href="./styles.css?v=5">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><path d="M7 3v3M17 3v3M4 9h16"/><rect x="3" y="5" width="18" height="16" rx="3"/><path d="m8 14 2.2 2.2L16 11"/></symbol>
+    <symbol id="i-queue" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2M3 12h2M19 12h2"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 20v-1.8c0-2.3-1.8-4.2-4-4.2H6c-2.2 0-4 1.9-4 4.2V20"/><circle cx="9" cy="7" r="4"/><path d="M17 11a4 4 0 0 0 0-8M22 20v-1.8c0-2-1.3-3.6-3-4.1"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20V7M2 20h22"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 14.5A9 9 0 1 1 9.5 3 7 7 0 0 0 21 14.5Z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.7 19.7 0 0 1-8.6-3.1 19.4 19.4 0 0 1-6-6A19.7 19.7 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2.1Z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-location" viewBox="0 0 24 24"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4Z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 2 1.4 5.6L19 9l-5.6 1.4L12 16l-1.4-5.6L5 9l5.6-1.4ZM19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7Z"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/></symbol>
+    <symbol id="i-rupee" viewBox="0 0 24 24"><path d="M6 4h12M6 8h12M7 4c6 0 7 7 0 7l9 9"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.7-7.5 1.1-1.1a5.5 5.5 0 0 0 0-7.8Z"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 2.5 3 6 6.6 1-4.8 4.6 1.1 6.5-5.9-3.1-5.9 3.1 1.1-6.5-4.8-4.6 6.6-1Z"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3M7 8l5-5 5 5M4 15v5h16v-5"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.8 2.8 8.1 7 10 4.2-1.9 7-5.2 7-10V6Z"/><path d="m8.8 12 2 2 4.4-4.5"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6Z"/><path d="M14 2v5h5M9 12h6M9 16h6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13M7 11l5 5 5-5M4 19v2h16v-2"/></symbol>
+  </svg>
+
+  <section class="auth-screen" id="auth-screen" aria-labelledby="auth-title">
+    <div class="auth-aurora auth-aurora-one"></div>
+    <div class="auth-aurora auth-aurora-two"></div>
+    <div class="auth-shell">
+      <div class="auth-story">
+        <img class="oxygen-tree oxygen-tree-doctor" src="/assets/brand-motion/oxygen-tree.svg" alt="" aria-hidden="true">
+        <div class="brand brand-light">
+          <span class="brand-mark animated-brand-mark" aria-hidden="true">
+            <img src="/assets/logos/sehatline-mark-frame.png" alt="">
+            <video autoplay muted loop playsinline preload="metadata"><source src="/assets/logos/sehatline-animated.mp4" type="video/mp4"></video>
+          </span>
+          <span><b>SehatLine</b><small>DOCTOR</small></span>
+        </div>
+        <div class="auth-copy">
+          <span class="eyebrow eyebrow-light"><svg><use href="#i-spark"></use></svg> Your practice, in rhythm</span>
+          <h1>Care flows better when everything is in one place.</h1>
+          <p>Appointments, live queue, patient context and practice insights—designed to keep your day calm.</p>
+        </div>
+        <div class="auth-preview" aria-hidden="true">
+          <div class="preview-top">
+            <span>Today’s flow</span>
+            <span class="live-pill"><i></i> Live</span>
+          </div>
+          <div class="preview-queue">
+            <div class="mini-ring"><b>A12</b><span>Now</span></div>
+            <div>
+              <strong>6 patients waiting</strong>
+              <span>On time · 14 min avg.</span>
+            </div>
+          </div>
+          <div class="preview-slots">
+            <span class="filled"></span><span class="filled"></span><span class="current"></span><span></span><span></span>
+          </div>
+        </div>
+        <div class="trust-row">
+          <span><svg><use href="#i-check"></use></svg> Private by design</span>
+          <span><svg><use href="#i-check"></use></svg> Built for Indian clinics</span>
+        </div>
+      </div>
+
+      <div class="auth-card-wrap">
+        <img class="oxygen-tree oxygen-tree-doctor-mobile" src="/assets/brand-motion/oxygen-tree.svg" alt="" aria-hidden="true">
+        <button class="icon-button auth-theme-toggle" id="auth-theme-toggle" aria-label="Switch colour theme">
+          <svg class="theme-icon-light"><use href="#i-moon"></use></svg>
+          <svg class="theme-icon-dark"><use href="#i-sun"></use></svg>
+        </button>
+        <div class="auth-card">
+          <div id="phone-step">
+            <span class="mobile-brand">
+              <span class="brand-mark animated-brand-mark" aria-hidden="true">
+                <img src="/assets/logos/sehatline-mark-frame.png" alt="">
+                <video autoplay muted loop playsinline preload="metadata"><source src="/assets/logos/sehatline-animated.mp4" type="video/mp4"></video>
+              </span>
+              <b>SehatLine <small>DOCTOR</small></b>
+            </span>
+            <span class="eyebrow">Doctor workspace</span>
+            <h2 id="auth-title">Welcome back, Doctor</h2>
+            <p class="auth-subtitle">Sign in with the mobile number registered with your clinic.</p>
+
+            <form id="phone-form" novalidate>
+              <label for="phone">Mobile number</label>
+              <div class="phone-field">
+                <span>+91</span>
+                <input id="phone" name="phone" inputmode="numeric" autocomplete="tel-national" maxlength="10" placeholder="98765 43210" aria-describedby="phone-help">
+              </div>
+              <small class="field-help" id="phone-help">We’ll send a secure one-time password.</small>
+              <p class="form-error" id="phone-error" role="alert"></p>
+              <button class="primary-button auth-submit" type="submit">
+                <span>Continue securely</span><svg><use href="#i-arrow"></use></svg>
+              </button>
+            </form>
+
+            <div class="doctor-join-prompt">
+              <span class="join-prompt-icon" aria-hidden="true"><svg><use href="#i-shield"></use></svg></span>
+              <span>
+                <b>New to SehatLine?</b>
+                <small>Apply with your medical licence and clinic details.</small>
+              </span>
+              <button class="text-button join-apply-button" id="open-doctor-application" type="button">
+                Apply <svg><use href="#i-arrow"></use></svg>
+              </button>
+            </div>
+
+            <!-- DEMO_UI_START -->
+            <div class="divider"><span>or explore first</span></div>
+            <button class="secondary-button demo-button" id="demo-login" type="button">
+              <span class="demo-icon"><svg><use href="#i-spark"></use></svg></span>
+              <span><b>Enter demo clinic</b><small>No sign-up needed</small></span>
+              <svg><use href="#i-chevron"></use></svg>
+            </button>
+            <!-- DEMO_UI_END -->
+            <p class="terms">By continuing, you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a>.</p>
+          </div>
+
+          <div id="otp-step" hidden>
+            <button class="text-button back-button" id="otp-back" type="button">← Change number</button>
+            <span class="otp-illustration"><svg><use href="#i-phone"></use></svg></span>
+            <span class="eyebrow">Secure verification</span>
+            <h2>Enter the 6-digit code</h2>
+            <p class="auth-subtitle">Sent to <strong id="masked-phone">+91 ••••• ••210</strong></p>
+            <form id="otp-form" novalidate>
+              <fieldset class="otp-fields" aria-label="One-time password">
+                <input inputmode="numeric" maxlength="1" aria-label="OTP digit 1">
+                <input inputmode="numeric" maxlength="1" aria-label="OTP digit 2">
+                <input inputmode="numeric" maxlength="1" aria-label="OTP digit 3">
+                <input inputmode="numeric" maxlength="1" aria-label="OTP digit 4">
+                <input inputmode="numeric" maxlength="1" aria-label="OTP digit 5">
+                <input inputmode="numeric" maxlength="1" aria-label="OTP digit 6">
+              </fieldset>
+              <p class="form-error" id="otp-error" role="alert"></p>
+              <button class="primary-button auth-submit" type="submit">Verify &amp; open dashboard</button>
+            </form>
+            <button class="text-button resend-button" id="resend-otp" type="button" disabled>Resend code in <span id="resend-time">30</span>s</button>
+            <!-- DEMO_UI_START --><p class="demo-hint">Prototype tip: use <strong>123456</strong></p><!-- DEMO_UI_END -->
+          </div>
+        </div>
+        <p class="secure-note"><svg><use href="#i-check"></use></svg> Your clinic data stays encrypted and protected.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="app-shell" id="app-shell" hidden>
+    <aside class="sidebar" aria-label="Primary navigation">
+      <a class="brand sidebar-brand" href="#dashboard" data-view-link="dashboard">
+        <span class="brand-mark animated-brand-mark" aria-hidden="true">
+          <img src="/assets/logos/sehatline-mark-frame.png" alt="">
+          <video autoplay muted loop playsinline preload="metadata"><source src="/assets/logos/sehatline-animated.mp4" type="video/mp4"></video>
+        </span>
+        <span><b>SehatLine</b><small>DOCTOR</small></span>
+      </a>
+
+      <nav class="side-nav">
+        <span class="nav-label">WORKSPACE</span>
+        <button class="nav-item active" data-view="dashboard" type="button">
+          <svg><use href="#i-grid"></use></svg><span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-view="appointments" type="button">
+          <svg><use href="#i-calendar"></use></svg><span>Appointments</span><span class="nav-count" id="pending-nav-count">3</span>
+        </button>
+        <button class="nav-item" data-view="queue" type="button">
+          <svg><use href="#i-queue"></use></svg><span>Live queue</span><i class="nav-live-dot" id="queue-nav-dot"></i>
+        </button>
+        <button class="nav-item" data-view="patients" type="button">
+          <svg><use href="#i-users"></use></svg><span>Patients</span>
+        </button>
+        <span class="nav-label">PRACTICE</span>
+        <button class="nav-item" data-view="analytics" type="button">
+          <svg><use href="#i-chart"></use></svg><span>Analytics</span>
+        </button>
+        <button class="nav-item" data-view="profile" type="button">
+          <svg><use href="#i-user"></use></svg><span>Profile &amp; clinic</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-upgrade">
+        <span><svg><use href="#i-spark"></use></svg></span>
+        <b>SehatLine Pro</b>
+        <p>Smart insights for a healthier practice.</p>
+        <button type="button" data-view="analytics">Explore insights</button>
+      </div>
+
+      <div class="sidebar-doctor">
+        <span class="avatar avatar-doctor">AK<i></i></span>
+        <span><b>Dr. Aditi Kapoor</b><small>Dermatologist</small></span>
+        <button class="icon-button" id="sidebar-menu" type="button" aria-label="Doctor menu"><svg><use href="#i-more"></use></svg></button>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="topbar-kicker" id="topbar-kicker">SATURDAY, 25 JULY</p>
+          <h1 id="page-title">Good evening, Dr. Aditi <span aria-hidden="true">👋</span></h1>
+        </div>
+        <div class="topbar-actions">
+          <span class="clinic-status"><i></i><span>Clinic open</span></span>
+          <button class="icon-button theme-toggle" id="theme-toggle" type="button" aria-label="Switch colour theme">
+            <svg class="theme-icon-light"><use href="#i-moon"></use></svg>
+            <svg class="theme-icon-dark"><use href="#i-sun"></use></svg>
+          </button>
+          <button class="icon-button notification-button" id="notification-button" type="button" aria-label="Open notifications" aria-expanded="false">
+            <svg><use href="#i-bell"></use></svg><i></i>
+          </button>
+          <button class="top-avatar" id="profile-shortcut" type="button" aria-label="Open doctor profile">AK</button>
+        </div>
+      </header>
+
+      <main id="main-content" tabindex="-1">
+        <section class="view active" id="view-dashboard" aria-labelledby="dashboard-heading">
+          <h2 class="sr-only" id="dashboard-heading">Dashboard</h2>
+          <div class="dashboard-hero">
+            <div class="hero-copy">
+              <span class="eyebrow eyebrow-light"><i></i> Your clinic is running smoothly</span>
+              <h2>21 patients. One calm day.</h2>
+              <p>You’re on schedule, with an average wait time of just 14 minutes.</p>
+              <div class="hero-actions">
+                <button class="hero-primary" type="button" data-view="queue"><svg><use href="#i-queue"></use></svg> Open live queue</button>
+                <button class="hero-secondary" type="button" data-view="appointments">View schedule <svg><use href="#i-arrow"></use></svg></button>
+              </div>
+            </div>
+            <div class="hero-pulse" aria-label="Clinic efficiency 92 percent">
+              <svg viewBox="0 0 160 160" aria-hidden="true">
+                <circle class="pulse-track" cx="80" cy="80" r="64"/>
+                <circle class="pulse-value" cx="80" cy="80" r="64"/>
+              </svg>
+              <span><b>92%</b><small>on time</small></span>
+              <i class="orbit-dot"></i>
+            </div>
+          </div>
+
+          <div class="metrics-grid" id="dashboard-metrics"></div>
+
+          <div class="dashboard-grid">
+            <article class="panel schedule-panel">
+              <div class="panel-heading">
+                <div><span class="eyebrow">Today’s flow</span><h3>Appointments</h3></div>
+                <button class="text-button" type="button" data-view="appointments">View all <svg><use href="#i-arrow"></use></svg></button>
+              </div>
+              <div class="timeline" id="dashboard-appointments"></div>
+            </article>
+
+            <article class="panel queue-snapshot">
+              <div class="panel-heading">
+                <div><span class="eyebrow">Live OPD</span><h3>Queue status</h3></div>
+                <span class="status-badge status-live"><i></i> Live</span>
+              </div>
+              <div class="queue-now">
+                <div class="queue-ring-small">
+                  <svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="50"/><circle class="ring-progress" cx="60" cy="60" r="50"/></svg>
+                  <span><small>NOW</small><b id="dashboard-token">A12</b></span>
+                </div>
+                <div class="queue-now-copy"><span>With patient</span><b id="dashboard-current-patient">Riya Sharma</b><small><svg><use href="#i-clock"></use></svg> Started 8 min ago</small></div>
+              </div>
+              <div class="queue-mini-stats">
+                <span><b id="dashboard-waiting">6</b><small>Waiting</small></span>
+                <span><b>14m</b><small>Avg. wait</small></span>
+                <span><b>5:42</b><small>Est. finish</small></span>
+              </div>
+              <button class="secondary-button full-button" type="button" data-view="queue">Manage live queue <svg><use href="#i-arrow"></use></svg></button>
+            </article>
+
+            <article class="panel insight-panel">
+              <div class="insight-icon"><svg><use href="#i-spark"></use></svg></div>
+              <div>
+                <span class="eyebrow">SEHAT INSIGHT</span>
+                <h3>Your Monday follow-ups are up 18%</h3>
+                <p>Opening one extra 6:30 PM slot could reduce next week’s waitlist.</p>
+              </div>
+              <button class="icon-button" type="button" data-view="analytics" aria-label="View practice insight"><svg><use href="#i-arrow"></use></svg></button>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="view-appointments" aria-labelledby="appointments-heading">
+          <div class="section-heading">
+            <div><span class="eyebrow">Daily schedule</span><h2 id="appointments-heading">Appointments</h2><p>Review requests and keep every visit moving.</p></div>
+            <button class="primary-button compact-button" id="add-appointment" type="button"><svg><use href="#i-plus"></use></svg> Add appointment</button>
+          </div>
+          <div class="appointments-toolbar">
+            <div class="date-switcher" role="group" aria-label="Appointment date">
+              <button class="icon-button" id="previous-day" type="button" aria-label="Previous day">←</button>
+              <button class="date-button" id="appointment-date" type="button"><svg><use href="#i-calendar"></use></svg><span>Today, 25 July</span></button>
+              <button class="icon-button" id="next-day" type="button" aria-label="Next day">→</button>
+            </div>
+            <label class="search-field">
+              <svg><use href="#i-search"></use></svg><span class="sr-only">Search appointments</span>
+              <input id="appointment-search" type="search" placeholder="Search patient or token">
+            </label>
+          </div>
+          <div class="filter-tabs" id="appointment-filters" role="tablist" aria-label="Appointment status">
+            <button class="active" role="tab" aria-selected="true" data-filter="all">All <span id="filter-all-count">0</span></button>
+            <button role="tab" aria-selected="false" data-filter="pending">Requests <span id="filter-pending-count">0</span></button>
+            <button role="tab" aria-selected="false" data-filter="confirmed">Confirmed</button>
+            <button role="tab" aria-selected="false" data-filter="completed">Completed</button>
+          </div>
+          <div class="appointment-list" id="appointment-list"></div>
+          <div class="empty-state" id="appointment-empty" hidden>
+            <span><svg><use href="#i-calendar"></use></svg></span><h3>No appointments found</h3><p>Try a different filter or search term.</p>
+          </div>
+        </section>
+
+        <section class="view" id="view-queue" aria-labelledby="queue-heading">
+          <div class="section-heading">
+            <div><span class="eyebrow">Clinic operations</span><h2 id="queue-heading">Live queue</h2><p>Keep patients informed and your OPD moving.</p></div>
+            <span class="queue-state-badge" id="queue-state-badge"><i></i><span>OPD is live</span></span>
+          </div>
+          <div class="queue-layout">
+            <article class="panel queue-control-card">
+              <div class="queue-control-top">
+                <span class="eyebrow">Now consulting</span>
+                <button class="icon-button" id="queue-options" type="button" aria-label="Queue options"><svg><use href="#i-more"></use></svg></button>
+              </div>
+              <div class="queue-main-ring" id="queue-main-ring">
+                <svg viewBox="0 0 220 220" aria-hidden="true"><circle class="queue-track" cx="110" cy="110" r="92"/><circle class="queue-progress" cx="110" cy="110" r="92"/></svg>
+                <span><small>TOKEN</small><b id="current-token">A12</b><em id="queue-elapsed">08:24</em></span>
+              </div>
+              <div class="current-patient" id="current-patient-card"></div>
+              <div class="queue-primary-controls">
+                <button class="secondary-button" id="pause-queue" type="button"><svg><use href="#i-pause"></use></svg> Pause OPD</button>
+                <button class="primary-button" id="call-next" type="button">Call next <svg><use href="#i-arrow"></use></svg></button>
+              </div>
+              <div class="queue-secondary-controls">
+                <button type="button" id="delay-queue"><svg><use href="#i-clock"></use></svg> Send delay update</button>
+                <button type="button" id="close-queue"><svg><use href="#i-stop"></use></svg> Close queue</button>
+              </div>
+            </article>
+
+            <div class="queue-side">
+              <article class="panel queue-summary-card">
+                <div class="panel-heading"><div><span class="eyebrow">Today</span><h3>Queue overview</h3></div><span class="status-badge">Updated now</span></div>
+                <div class="queue-summary-grid">
+                  <span><b id="queue-waiting-count">6</b><small>Waiting</small></span>
+                  <span><b id="queue-seen-count">11</b><small>Seen</small></span>
+                  <span><b id="queue-avg-time">14m</b><small>Avg. time</small></span>
+                </div>
+                <label class="range-label" for="expected-time"><span>Expected time per patient</span><strong><span id="expected-time-value">15</span> min</strong></label>
+                <input id="expected-time" type="range" min="5" max="30" step="5" value="15">
+              </article>
+              <article class="panel waiting-card">
+                <div class="panel-heading"><div><span class="eyebrow">Up next</span><h3>Waiting patients</h3></div><button class="text-button" id="notify-all" type="button">Notify all</button></div>
+                <div id="queue-waiting-list"></div>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-patients" aria-labelledby="patients-heading">
+          <div class="section-heading">
+            <div><span class="eyebrow">Patient directory</span><h2 id="patients-heading">Patients</h2><p>Quick context for more personal care.</p></div>
+            <button class="secondary-button compact-button" id="export-patients" type="button"><svg><use href="#i-download"></use></svg> Export list</button>
+          </div>
+          <div class="patients-toolbar">
+            <label class="search-field patient-search">
+              <svg><use href="#i-search"></use></svg><span class="sr-only">Search patients</span>
+              <input id="patient-search" type="search" placeholder="Search by name, phone or condition">
+            </label>
+            <select id="patient-sort" aria-label="Sort patients">
+              <option value="recent">Recently visited</option>
+              <option value="name">Name A–Z</option>
+              <option value="visits">Most visits</option>
+            </select>
+          </div>
+          <div class="patient-stats" id="patient-stats"></div>
+          <div class="patient-table-wrap panel">
+            <table class="patient-table">
+              <thead><tr><th>Patient</th><th>Last visit</th><th>Visits</th><th>Last concern</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
+              <tbody id="patient-table-body"></tbody>
+            </table>
+            <div class="patient-mobile-list" id="patient-mobile-list"></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-analytics" aria-labelledby="analytics-heading">
+          <div class="section-heading">
+            <div><span class="eyebrow">Practice intelligence</span><h2 id="analytics-heading">Analytics</h2><p>Clear signals to help your clinic grow steadily.</p></div>
+            <select id="analytics-range" aria-label="Analytics period"><option value="30">Last 30 days</option><option value="90">Last 3 months</option><option value="365">This year</option></select>
+          </div>
+          <div class="analytics-metrics" id="analytics-metrics"></div>
+          <div class="analytics-grid">
+            <article class="panel chart-panel">
+              <div class="panel-heading"><div><span class="eyebrow">Booking volume</span><h3>Appointment trend</h3></div><span class="trend-chip positive">+12.4%</span></div>
+              <div class="line-chart-wrap">
+                <div class="chart-y-labels"><span>40</span><span>30</span><span>20</span><span>10</span><span>0</span></div>
+                <svg class="line-chart" viewBox="0 0 720 260" preserveAspectRatio="none" aria-label="Appointment bookings trend over four weeks" role="img">
+                  <defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#00c98b" stop-opacity=".3"/><stop offset="1" stop-color="#00c98b" stop-opacity="0"/></linearGradient></defs>
+                  <g class="grid-lines"><path d="M0 20H720M0 75H720M0 130H720M0 185H720M0 240H720"/></g>
+                  <path class="area-path" d="M0 203 C70 190 80 145 145 158 S245 175 290 117 S385 69 430 91 S520 155 575 104 S660 64 720 43 V240 H0Z"/>
+                  <path class="trend-path" d="M0 203 C70 190 80 145 145 158 S245 175 290 117 S385 69 430 91 S520 155 575 104 S660 64 720 43"/>
+                  <g class="chart-points"><circle cx="0" cy="203" r="5"/><circle cx="145" cy="158" r="5"/><circle cx="290" cy="117" r="5"/><circle cx="430" cy="91" r="5"/><circle cx="575" cy="104" r="5"/><circle cx="720" cy="43" r="5"/></g>
+                </svg>
+                <div class="chart-x-labels"><span>30 Jun</span><span>7 Jul</span><span>14 Jul</span><span>21 Jul</span><span>Today</span></div>
+              </div>
+            </article>
+            <article class="panel source-panel">
+              <div class="panel-heading"><div><span class="eyebrow">Patient mix</span><h3>New vs repeat</h3></div></div>
+              <div class="donut-wrap">
+                <div class="donut-chart"><span><b>64%</b><small>Repeat</small></span></div>
+                <div class="donut-legend">
+                  <span><i class="repeat-dot"></i><span>Repeat patients</span><b>64%</b></span>
+                  <span><i class="new-dot"></i><span>New patients</span><b>36%</b></span>
+                </div>
+              </div>
+              <div class="analytics-insight"><svg><use href="#i-spark"></use></svg><p><b>Strong patient trust</b><br>Your repeat rate is 9% above similar clinics.</p></div>
+            </article>
+            <article class="panel busy-hours-panel">
+              <div class="panel-heading"><div><span class="eyebrow">Capacity</span><h3>Busiest hours</h3></div><span class="status-badge">This month</span></div>
+              <div class="hour-bars" id="hour-bars"></div>
+            </article>
+            <article class="panel rating-panel">
+              <div class="panel-heading"><div><span class="eyebrow">Patient experience</span><h3>Ratings</h3></div><button class="text-button" type="button">View reviews</button></div>
+              <div class="rating-overview"><span><b>4.9</b><small><i>★★★★★</i> 128 reviews</small></span><p>“Dr. Aditi explained everything patiently and the queue updates were very helpful.”<small>— Meera S.</small></p></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="view-profile" aria-labelledby="profile-heading">
+          <div class="section-heading">
+            <div><span class="eyebrow">Public listing &amp; settings</span><h2 id="profile-heading">Profile &amp; clinic</h2><p>Keep your details accurate for patients and bookings.</p></div>
+            <button class="primary-button compact-button" id="save-profile-top" type="button"><svg><use href="#i-check"></use></svg> Save changes</button>
+          </div>
+          <div class="profile-layout">
+            <aside class="profile-nav panel" aria-label="Profile sections">
+              <button class="active" type="button" data-profile-tab="professional"><svg><use href="#i-user"></use></svg> Professional profile</button>
+              <button type="button" data-profile-tab="clinic"><svg><use href="#i-location"></use></svg> Clinic details</button>
+              <button type="button" data-profile-tab="availability"><svg><use href="#i-calendar"></use></svg> Availability</button>
+              <button type="button" data-profile-tab="services"><svg><use href="#i-heart"></use></svg> Services &amp; fees</button>
+              <div class="profile-complete"><span><b>92%</b> complete</span><div><i></i></div><small>Add a second clinic photo to improve visibility.</small></div>
+            </aside>
+            <form class="panel profile-form" id="profile-form">
+              <div class="profile-tab active" data-profile-panel="professional">
+                <div class="form-section-heading"><div><h3>Professional profile</h3><p>This information appears on your public SehatLine profile.</p></div><span class="verified-chip"><svg><use href="#i-check"></use></svg> Verified</span></div>
+                <div class="profile-photo-row">
+                  <span class="large-avatar">AK</span>
+                  <div><b>Profile photo</b><p>JPG or PNG, at least 400 × 400 px.</p><label class="secondary-button compact-button upload-button"><svg><use href="#i-upload"></use></svg> Change photo<input id="profile-photo" type="file" accept="image/png,image/jpeg"></label></div>
+                </div>
+                <div class="form-grid">
+                  <label><span>Full name</span><input name="name" value="Dr. Aditi Kapoor" autocomplete="name"></label>
+                  <label><span>Specialisation</span><input name="specialisation" value="Dermatologist"></label>
+                  <label><span>Medical registration no.</span><input name="registration" value="DMC/R/18492" readonly><small>Contact support to update verified details.</small></label>
+                  <label><span>Experience</span><div class="input-suffix"><input name="experience" type="number" value="12" min="0"><span>years</span></div></label>
+                  <label class="full-field"><span>Qualifications</span><input name="qualifications" value="MBBS, MD (Dermatology), FIDP"></label>
+                  <label class="full-field"><span>Languages</span><input name="languages" value="English, Hindi, Punjabi"></label>
+                  <label class="full-field"><span>About</span><textarea name="about" rows="4">Consultant dermatologist focused on evidence-led, compassionate skin and hair care for adults and children.</textarea><small><span id="about-count">124</span>/300 characters</small></label>
+                </div>
+              </div>
+
+              <div class="profile-tab" data-profile-panel="clinic">
+                <div class="form-section-heading"><div><h3>Clinic details</h3><p>Help patients find and contact your practice easily.</p></div></div>
+                <div class="form-grid">
+                  <label class="full-field"><span>Clinic name</span><input name="clinicName" value="Kapoor Skin &amp; Wellness Clinic"></label>
+                  <label><span>Clinic phone</span><input name="clinicPhone" value="+91 98765 42109" inputmode="tel"></label>
+                  <label><span>City</span><input name="city" value="New Delhi"></label>
+                  <label class="full-field"><span>Address</span><textarea name="address" rows="3">18, Green Park Main, Near Gate 2, New Delhi 110016</textarea></label>
+                  <label><span>Consultation mode</span><select name="mode"><option>In-clinic</option><option>Online &amp; in-clinic</option></select></label>
+                  <label><span>Average visit duration</span><select name="visitDuration"><option>15 minutes</option><option>10 minutes</option><option>20 minutes</option></select></label>
+                </div>
+                <div class="clinic-photo-grid">
+                  <div class="clinic-photo clinic-photo-one"><span>Reception</span></div>
+                  <div class="clinic-photo clinic-photo-two"><span>Consultation room</span></div>
+                  <label class="clinic-photo-add"><svg><use href="#i-plus"></use></svg><span>Add clinic photo</span><input type="file" accept="image/*"></label>
+                </div>
+              </div>
+
+              <div class="profile-tab" data-profile-panel="availability">
+                <div class="form-section-heading"><div><h3>Weekly availability</h3><p>Set the regular hours patients can book.</p></div><button class="text-button" id="copy-hours" type="button">Copy Monday to weekdays</button></div>
+                <div class="availability-list" id="availability-list"></div>
+                <div class="holiday-section">
+                  <div><h3>Upcoming holidays</h3><p>Patients cannot book on blocked dates.</p></div>
+                  <button class="secondary-button compact-button" id="add-holiday" type="button"><svg><use href="#i-plus"></use></svg> Block date</button>
+                </div>
+                <div class="holiday-list" id="holiday-list"></div>
+              </div>
+
+              <div class="profile-tab" data-profile-panel="services">
+                <div class="form-section-heading"><div><h3>Services &amp; fees</h3><p>Clear pricing builds patient confidence.</p></div><button class="secondary-button compact-button" id="add-service" type="button"><svg><use href="#i-plus"></use></svg> Add service</button></div>
+                <div class="services-list" id="services-list"></div>
+                <div class="payment-note"><svg><use href="#i-rupee"></use></svg><div><b>Payments at clinic</b><p>Cash, UPI and cards are currently enabled for your listing.</p></div><button class="text-button" type="button">Manage</button></div>
+              </div>
+
+              <div class="form-footer"><span id="profile-save-status">Last saved today at 4:12 PM</span><button class="primary-button compact-button" type="submit">Save changes</button></div>
+            </form>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <nav class="bottom-nav" aria-label="Mobile navigation">
+      <button class="active" data-view="dashboard" type="button"><svg><use href="#i-grid"></use></svg><span>Dashboard</span></button>
+      <button data-view="appointments" type="button"><svg><use href="#i-calendar"></use></svg><span>Appointments</span><i id="mobile-pending-dot"></i></button>
+      <button class="queue-nav-button" data-view="queue" type="button"><span><svg><use href="#i-queue"></use></svg></span><em>Queue</em></button>
+      <button data-view="patients" type="button"><svg><use href="#i-users"></use></svg><span>Patients</span></button>
+      <button data-view="profile" type="button"><svg><use href="#i-user"></use></svg><span>Profile</span></button>
+    </nav>
+  </div>
+
+  <aside class="notification-drawer" id="notification-drawer" aria-labelledby="notification-title" aria-hidden="true">
+    <div class="drawer-heading"><div><span class="eyebrow">Updates</span><h2 id="notification-title">Notifications</h2></div><button class="icon-button" id="close-notifications" type="button" aria-label="Close notifications"><svg><use href="#i-close"></use></svg></button></div>
+    <div class="notification-list">
+      <button><span class="notification-icon mint"><svg><use href="#i-calendar"></use></svg></span><span><b>New appointment request</b><small>Kabir Malhotra requested 6:15 PM today.</small><em>2 min ago</em></span></button>
+      <button><span class="notification-icon blue"><svg><use href="#i-queue"></use></svg></span><span><b>Queue update sent</b><small>6 waiting patients were notified successfully.</small><em>18 min ago</em></span></button>
+      <button><span class="notification-icon violet"><svg><use href="#i-star"></use></svg></span><span><b>New 5-star review</b><small>Meera appreciated your clear consultation.</small><em>Yesterday</em></span></button>
+    </div>
+    <button class="secondary-button full-button" id="mark-notifications-read" type="button">Mark all as read</button>
+  </aside>
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+
+  <div class="modal-backdrop" id="modal-backdrop" hidden>
+    <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <button class="icon-button modal-close" id="modal-close" type="button" aria-label="Close dialog"><svg><use href="#i-close"></use></svg></button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <div class="toast-region" id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
+  <script src="./config.js?v=2"></script>
+  <script src="./app.js?v=5" defer></script>
+</body>
+</html>

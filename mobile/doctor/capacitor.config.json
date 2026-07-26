@@ -1,0 +1,11 @@
+{
+  "appId": "in.sehatline.doctor",
+  "appName": "SehatLine Doctor",
+  "webDir": "../../dist/doctor",
+  "android": {
+    "path": "../../android/doctor"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

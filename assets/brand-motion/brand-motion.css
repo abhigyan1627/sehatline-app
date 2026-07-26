@@ -1,0 +1,138 @@
+/*
+ * SehatLine brand-motion layer
+ * ----------------------------
+ * Decorative only: pair the layer with aria-hidden="true".
+ * Motion is primarily compositor-friendly transform/opacity animation.
+ */
+
+:root {
+  --sl-health-green: #00c98b;
+  --sl-oxygen-cyan: #00bdeb;
+  --sl-care-blue: #2563eb;
+  --sl-ink: #0b1f33;
+  --sl-surface: #f7fffc;
+  --sl-motion-opacity: 0.82;
+  --sl-motion-opacity-mobile: 0.64;
+  --sl-motion-size: min(1040px, 92vmin);
+}
+
+.sl-brand-surface {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 100%;
+  color: var(--sl-ink);
+  background:
+    radial-gradient(circle at 14% 10%, rgb(0 201 139 / 0.11), transparent 34rem),
+    radial-gradient(circle at 92% 8%, rgb(37 99 235 / 0.1), transparent 36rem),
+    linear-gradient(145deg, #ffffff 0%, var(--sl-surface) 52%, #f1f9ff 100%);
+}
+
+.sl-oxygen-bg {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  contain: paint;
+}
+
+.sl-oxygen-bg::before,
+.sl-oxygen-bg::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+
+.sl-oxygen-bg::before {
+  width: var(--sl-motion-size);
+  aspect-ratio: 1;
+  right: clamp(-16rem, -11vw, -4rem);
+  bottom: clamp(-14rem, -9vw, -4rem);
+  opacity: var(--sl-motion-opacity);
+  background: url("./oxygen-tree.svg") center / contain no-repeat;
+  filter: saturate(0.96);
+  transform: translate3d(0, 0, 0);
+}
+
+.sl-oxygen-bg::after {
+  width: min(48rem, 80vw);
+  aspect-ratio: 1;
+  right: -18rem;
+  top: -22rem;
+  border: 1px solid rgb(0 189 235 / 0.1);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 5rem rgb(0 201 139 / 0.025),
+    0 0 0 11rem rgb(37 99 235 / 0.018);
+}
+
+/* Places the identity behind a login/onboarding card without crowding its copy. */
+.sl-oxygen-bg--center::before {
+  right: 50%;
+  bottom: clamp(-19rem, -18vw, -9rem);
+  opacity: 0.72;
+  transform: translate3d(50%, 0, 0);
+}
+
+/* Softer variant for data-dense doctor/admin screens. */
+.sl-oxygen-bg--quiet::before {
+  right: clamp(-24rem, -18vw, -12rem);
+  bottom: clamp(-24rem, -18vw, -13rem);
+  opacity: 0.34;
+  filter: saturate(0.78);
+}
+
+/* Small empty-state treatment; use on a positioned card. */
+.sl-oxygen-bg--compact::before {
+  width: min(25rem, 92vw);
+  right: -7rem;
+  bottom: -10rem;
+  opacity: 0.25;
+}
+
+@media (max-width: 720px) {
+  :root {
+    --sl-motion-size: min(730px, 142vw);
+  }
+
+  .sl-oxygen-bg::before {
+    right: -44vw;
+    bottom: -24vw;
+    opacity: var(--sl-motion-opacity-mobile);
+  }
+
+  .sl-oxygen-bg--center::before {
+    right: 50%;
+    bottom: -38vw;
+    transform: translate3d(50%, 0, 0);
+  }
+
+  .sl-oxygen-bg--quiet::before {
+    right: -64vw;
+    bottom: -56vw;
+    opacity: 0.24;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sl-oxygen-bg::before {
+    /* The SVG also disables its own internal motion. */
+    transform: none;
+  }
+
+  .sl-oxygen-bg--center::before {
+    right: calc(50% - (var(--sl-motion-size) / 2));
+  }
+}
+
+@media (forced-colors: active) {
+  .sl-oxygen-bg {
+    display: none;
+  }
+
+  .sl-brand-surface {
+    background: Canvas;
+  }
+}

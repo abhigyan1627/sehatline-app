@@ -1,0 +1,26 @@
+# Runtime data and secrets
+.env
+.env.*
+!.env.example
+backend/data/runtime.json
+backend/data/*.tmp
+
+# Dependencies and build output
+node_modules/
+.pnpm-store/
+dist/
+build/
+coverage/
+.dart_tool/
+.next/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*

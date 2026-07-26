@@ -1,0 +1,26 @@
+{
+  "name": "SehatLine Doctor",
+  "short_name": "Sehat Doctor",
+  "description": "Appointments, patients and live clinic queue for SehatLine doctors.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f4f8f8",
+  "theme_color": "#00a77a",
+  "categories": ["medical", "health", "productivity"],
+  "icons": [
+    {
+      "src": "./app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./app-icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

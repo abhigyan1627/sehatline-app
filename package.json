@@ -1,0 +1,30 @@
+{
+  "name": "sehatline-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SehatLine patient and doctor Android apps with a shared healthcare platform.",
+  "type": "module",
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "dev": "node --watch backend/src/server.js",
+    "test": "node --test",
+    "check": "node --check patient_app/app.js && node --check doctor_app/app.js && node --check admin_panel/app.js && node --check backend/src/server.js && node --check scripts/build-mobile.mjs",
+    "mobile:prepare": "node scripts/build-mobile.mjs",
+    "android:patient:add": "cd mobile/patient && node ../../node_modules/@capacitor/cli/bin/capacitor add android",
+    "android:doctor:add": "cd mobile/doctor && node ../../node_modules/@capacitor/cli/bin/capacitor add android",
+    "android:patient:sync": "cd mobile/patient && node ../../node_modules/@capacitor/cli/bin/capacitor sync android",
+    "android:doctor:sync": "cd mobile/doctor && node ../../node_modules/@capacitor/cli/bin/capacitor sync android",
+    "android:patient:build": "cd mobile/patient && node ../../node_modules/@capacitor/cli/bin/capacitor build android",
+    "android:doctor:build": "cd mobile/doctor && node ../../node_modules/@capacitor/cli/bin/capacitor build android"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/core": "^8.4.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.4.2"
+  }
+}

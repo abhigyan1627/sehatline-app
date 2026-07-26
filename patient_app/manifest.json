@@ -1,0 +1,38 @@
+{
+  "name": "SehatLine — Smarter Care",
+  "short_name": "SehatLine",
+  "description": "Compare doctors and labs, book appointments and get guidance from Sehat AI.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F7FAFC",
+  "theme_color": "#00A67A",
+  "categories": ["medical", "health", "lifestyle"],
+  "icons": [
+    {
+      "src": "./icons/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Find a doctor",
+      "short_name": "Doctors",
+      "url": "./#/doctors"
+    },
+    {
+      "name": "Ask Sehat AI",
+      "short_name": "Sehat AI",
+      "url": "./#/ai"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 112" role="img" aria-labelledby="title desc">
+  <title id="title">SehatLine</title>
+  <desc id="desc">SehatLine healthcare platform logo and tagline.</desc>
+  <defs>
+    <linearGradient id="logoGradient" x1="10" y1="8" x2="102" y2="105" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00C98B"/>
+      <stop offset=".55" stop-color="#00C8FF"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="wordGradient" x1="126" y1="25" x2="362" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#101828"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+  <path d="M55 5 99 22v33c0 29.3-18.4 51.4-44 61.5C29.4 106.4 11 84.3 11 55V22L55 5Z" fill="url(#logoGradient)"/>
+  <path d="M30 60h12l5.5-14 10 29 6.5-16h16" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="122" y="64" fill="url(#wordGradient)" font-family="Manrope, Inter, Arial, sans-serif" font-size="48" font-weight="800" letter-spacing="-2">SehatLine</text>
+  <text x="125" y="88" fill="#667085" font-family="Inter, Arial, sans-serif" font-size="13" font-weight="700" letter-spacing="2.8">SMARTER CARE. BETTER LIFE.</text>
+</svg>

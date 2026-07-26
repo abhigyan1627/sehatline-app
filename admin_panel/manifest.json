@@ -1,0 +1,17 @@
+{
+  "name": "SehatLine Command Center",
+  "short_name": "SehatLine Admin",
+  "description": "Operations dashboard for the SehatLine healthcare network.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#07111f",
+  "theme_color": "#00c98b",
+  "icons": [
+    {
+      "src": "./app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

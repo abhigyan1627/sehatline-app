@@ -1,0 +1,295 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" role="img" aria-labelledby="oxygenTreeTitle oxygenTreeDesc">
+  <title id="oxygenTreeTitle">SehatLine oxygen tree</title>
+  <desc id="oxygenTreeDesc">A softly animated tree shaped like healthy lungs, with rising oxygen particles in SehatLine green and blue.</desc>
+
+  <defs>
+    <linearGradient id="canopyLeft" x1="232" y1="252" x2="592" y2="774" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#67E8C1"/>
+      <stop offset=".5" stop-color="#00C98B"/>
+      <stop offset="1" stop-color="#078D77"/>
+    </linearGradient>
+    <linearGradient id="canopyRight" x1="618" y1="242" x2="973" y2="780" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6BE7FF"/>
+      <stop offset=".5" stop-color="#00BDEB"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="trunk" x1="498" y1="990" x2="723" y2="466" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#075985"/>
+      <stop offset=".5" stop-color="#078D77"/>
+      <stop offset="1" stop-color="#00C98B"/>
+    </linearGradient>
+    <linearGradient id="breathLine" x1="282" y1="610" x2="918" y2="610" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00C98B" stop-opacity="0"/>
+      <stop offset=".19" stop-color="#00C98B"/>
+      <stop offset=".52" stop-color="#FFFFFF"/>
+      <stop offset=".82" stop-color="#00BDEB"/>
+      <stop offset="1" stop-color="#2563EB" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0" cy="0" r="1" gradientTransform="translate(600 570) rotate(90) scale(486)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DFFDF5" stop-opacity=".68"/>
+      <stop offset=".46" stop-color="#E7F9FF" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#EFFBFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="groundGlow" cx="0" cy="0" r="1" gradientTransform="translate(600 1008) rotate(90) scale(83 318)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00C98B" stop-opacity=".21"/>
+      <stop offset="1" stop-color="#2563EB" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="softGlow" x="-35%" y="-35%" width="170%" height="170%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+    <path id="leafDrop" d="M0-15C11-10 16-1 11 8 6 17-5 18-11 10-17 1-12-10 0-15Z"/>
+    <path id="leafRound" d="M0-13C10-13 16-5 14 4 12 14 2 18-7 13-16 8-17-3-10-10-7-12-4-13 0-13Z"/>
+  </defs>
+
+  <style>
+    .oxygen-tree__halo {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: oxygen-halo 7.2s ease-in-out infinite;
+    }
+
+    .oxygen-tree__living {
+      transform-box: fill-box;
+      transform-origin: 50% 78%;
+      animation: oxygen-breathe 6.4s cubic-bezier(.45, 0, .55, 1) infinite;
+    }
+
+    .oxygen-tree__left-leaves,
+    .oxygen-tree__right-leaves {
+      transform-box: fill-box;
+      transform-origin: 50% 84%;
+    }
+
+    .oxygen-tree__left-leaves {
+      animation: oxygen-sway-left 8.5s ease-in-out infinite;
+    }
+
+    .oxygen-tree__right-leaves {
+      animation: oxygen-sway-right 9.2s ease-in-out infinite;
+    }
+
+    .oxygen-tree__breath-line {
+      stroke-dasharray: 44 18 132 640;
+      animation: oxygen-line 5.8s linear infinite;
+    }
+
+    .oxygen-tree__particle {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: oxygen-rise 7s cubic-bezier(.33, .02, .2, 1) infinite;
+    }
+
+    .oxygen-tree__particle--2 { animation-delay: -1.4s; animation-duration: 8.4s; }
+    .oxygen-tree__particle--3 { animation-delay: -3.8s; animation-duration: 7.7s; }
+    .oxygen-tree__particle--4 { animation-delay: -5.1s; animation-duration: 9.1s; }
+    .oxygen-tree__particle--5 { animation-delay: -2.6s; animation-duration: 8.8s; }
+    .oxygen-tree__particle--6 { animation-delay: -6.2s; animation-duration: 9.6s; }
+
+    .oxygen-tree__root-ring {
+      transform-box: fill-box;
+      transform-origin: center;
+      animation: oxygen-root 6.4s ease-out infinite;
+    }
+
+    .oxygen-tree__root-ring--2 {
+      animation-delay: -3.2s;
+    }
+
+    @keyframes oxygen-breathe {
+      0%, 100% { transform: translateY(2px) scale(.992); }
+      50% { transform: translateY(-7px) scale(1.012); }
+    }
+
+    @keyframes oxygen-halo {
+      0%, 100% { opacity: .55; transform: scale(.96); }
+      50% { opacity: .88; transform: scale(1.035); }
+    }
+
+    @keyframes oxygen-sway-left {
+      0%, 100% { transform: rotate(-.45deg); }
+      50% { transform: rotate(.75deg); }
+    }
+
+    @keyframes oxygen-sway-right {
+      0%, 100% { transform: rotate(.55deg); }
+      50% { transform: rotate(-.7deg); }
+    }
+
+    @keyframes oxygen-line {
+      to { stroke-dashoffset: -834; }
+    }
+
+    @keyframes oxygen-rise {
+      0% { opacity: 0; transform: translate3d(0, 38px, 0) scale(.72); }
+      18% { opacity: .72; }
+      76% { opacity: .46; }
+      100% { opacity: 0; transform: translate3d(8px, -112px, 0) scale(1.08); }
+    }
+
+    @keyframes oxygen-root {
+      0% { opacity: .38; transform: scale(.76); }
+      70%, 100% { opacity: 0; transform: scale(1.18); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .oxygen-tree__halo,
+      .oxygen-tree__living,
+      .oxygen-tree__left-leaves,
+      .oxygen-tree__right-leaves,
+      .oxygen-tree__breath-line,
+      .oxygen-tree__particle,
+      .oxygen-tree__root-ring {
+        animation: none !important;
+      }
+
+      .oxygen-tree__particle { opacity: .42; }
+      .oxygen-tree__root-ring { opacity: .12; }
+    }
+  </style>
+
+  <ellipse cx="600" cy="1009" rx="318" ry="84" fill="url(#groundGlow)"/>
+
+  <g class="oxygen-tree__halo">
+    <circle cx="600" cy="568" r="486" fill="url(#halo)"/>
+    <circle cx="600" cy="568" r="380" fill="none" stroke="#FFFFFF" stroke-opacity=".34" stroke-width="2"/>
+    <circle cx="600" cy="568" r="432" fill="none" stroke="#00BDEB" stroke-opacity=".08" stroke-width="2"/>
+  </g>
+
+  <g opacity=".24" filter="url(#softGlow)">
+    <path d="M600 932c-9-131-3-244 0-354" fill="none" stroke="#00C98B" stroke-width="54" stroke-linecap="round"/>
+    <ellipse cx="435" cy="532" rx="234" ry="276" fill="#00C98B"/>
+    <ellipse cx="765" cy="532" rx="234" ry="276" fill="#00BDEB"/>
+  </g>
+
+  <g class="oxygen-tree__living">
+    <!-- The mirrored crown is deliberately lung-like: healthcare without a literal anatomy illustration. -->
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M595 942C594 855 601 775 600 686C600 609 586 543 558 488" stroke="url(#trunk)" stroke-width="42"/>
+      <path d="M605 940C608 852 604 770 604 687C604 609 619 542 646 487" stroke="#FFFFFF" stroke-opacity=".24" stroke-width="8"/>
+
+      <g stroke="url(#canopyLeft)">
+        <path d="M585 705C526 678 480 635 454 581" stroke-width="31"/>
+        <path d="M558 642C492 607 442 553 416 489" stroke-width="24"/>
+        <path d="M515 591C451 574 394 531 359 476" stroke-width="20"/>
+        <path d="M469 548C414 537 368 508 333 463" stroke-width="16"/>
+        <path d="M444 559C391 584 348 622 318 671" stroke-width="17"/>
+        <path d="M506 644C447 665 399 704 366 753" stroke-width="19"/>
+        <path d="M540 685C495 720 468 762 454 810" stroke-width="18"/>
+        <path d="M416 489C390 430 348 384 291 357" stroke-width="17"/>
+        <path d="M359 476C336 421 302 386 258 366" stroke-width="13"/>
+        <path d="M456 532C455 464 440 412 410 369" stroke-width="16"/>
+        <path d="M497 579C507 509 501 452 478 405" stroke-width="17"/>
+      </g>
+
+      <g stroke="url(#canopyRight)">
+        <path d="M615 705C674 678 720 635 746 581" stroke-width="31"/>
+        <path d="M642 642C708 607 758 553 784 489" stroke-width="24"/>
+        <path d="M685 591C749 574 806 531 841 476" stroke-width="20"/>
+        <path d="M731 548C786 537 832 508 867 463" stroke-width="16"/>
+        <path d="M756 559C809 584 852 622 882 671" stroke-width="17"/>
+        <path d="M694 644C753 665 801 704 834 753" stroke-width="19"/>
+        <path d="M660 685C705 720 732 762 746 810" stroke-width="18"/>
+        <path d="M784 489C810 430 852 384 909 357" stroke-width="17"/>
+        <path d="M841 476C864 421 898 386 942 366" stroke-width="13"/>
+        <path d="M744 532C745 464 760 412 790 369" stroke-width="16"/>
+        <path d="M703 579C693 509 699 452 722 405" stroke-width="17"/>
+      </g>
+    </g>
+
+    <g class="oxygen-tree__left-leaves" fill="url(#canopyLeft)">
+      <use href="#leafRound" transform="translate(270 342) rotate(-54) scale(1.55)"/>
+      <use href="#leafDrop" transform="translate(313 378) rotate(-72) scale(1.2)"/>
+      <use href="#leafRound" transform="translate(239 377) rotate(-88) scale(1.05)"/>
+      <use href="#leafDrop" transform="translate(302 446) rotate(-74) scale(1.4)"/>
+      <use href="#leafRound" transform="translate(348 431) rotate(-52) scale(1.22)"/>
+      <use href="#leafDrop" transform="translate(396 361) rotate(-18) scale(1.48)"/>
+      <use href="#leafRound" transform="translate(433 394) rotate(-14) scale(1.15)"/>
+      <use href="#leafDrop" transform="translate(463 405) rotate(6) scale(1.43)"/>
+      <use href="#leafRound" transform="translate(468 466) rotate(-16) scale(1.12)"/>
+      <use href="#leafDrop" transform="translate(334 481) rotate(-78) scale(1.48)"/>
+      <use href="#leafRound" transform="translate(298 497) rotate(-104) scale(1.26)"/>
+      <use href="#leafDrop" transform="translate(305 563) rotate(-104) scale(1.28)"/>
+      <use href="#leafRound" transform="translate(343 590) rotate(-124) scale(1.17)"/>
+      <use href="#leafDrop" transform="translate(310 646) rotate(-126) scale(1.52)"/>
+      <use href="#leafRound" transform="translate(354 679) rotate(-140) scale(1.26)"/>
+      <use href="#leafDrop" transform="translate(378 730) rotate(-151) scale(1.48)"/>
+      <use href="#leafRound" transform="translate(422 752) rotate(-164) scale(1.16)"/>
+      <use href="#leafDrop" transform="translate(448 797) rotate(-168) scale(1.46)"/>
+      <use href="#leafRound" transform="translate(478 715) rotate(-154) scale(1.06)"/>
+      <use href="#leafDrop" transform="translate(421 647) rotate(-121) scale(1.22)"/>
+      <use href="#leafRound" transform="translate(382 536) rotate(-77) scale(1.18)"/>
+      <use href="#leafDrop" transform="translate(496 548) rotate(-26) scale(1.13)"/>
+      <use href="#leafRound" transform="translate(536 514) rotate(-6) scale(.98)"/>
+      <use href="#leafDrop" transform="translate(527 614) rotate(-112) scale(.98)"/>
+    </g>
+
+    <g class="oxygen-tree__right-leaves" fill="url(#canopyRight)">
+      <use href="#leafRound" transform="translate(930 342) rotate(54) scale(1.55)"/>
+      <use href="#leafDrop" transform="translate(887 378) rotate(72) scale(1.2)"/>
+      <use href="#leafRound" transform="translate(961 377) rotate(88) scale(1.05)"/>
+      <use href="#leafDrop" transform="translate(898 446) rotate(74) scale(1.4)"/>
+      <use href="#leafRound" transform="translate(852 431) rotate(52) scale(1.22)"/>
+      <use href="#leafDrop" transform="translate(804 361) rotate(18) scale(1.48)"/>
+      <use href="#leafRound" transform="translate(767 394) rotate(14) scale(1.15)"/>
+      <use href="#leafDrop" transform="translate(737 405) rotate(-6) scale(1.43)"/>
+      <use href="#leafRound" transform="translate(732 466) rotate(16) scale(1.12)"/>
+      <use href="#leafDrop" transform="translate(866 481) rotate(78) scale(1.48)"/>
+      <use href="#leafRound" transform="translate(902 497) rotate(104) scale(1.26)"/>
+      <use href="#leafDrop" transform="translate(895 563) rotate(104) scale(1.28)"/>
+      <use href="#leafRound" transform="translate(857 590) rotate(124) scale(1.17)"/>
+      <use href="#leafDrop" transform="translate(890 646) rotate(126) scale(1.52)"/>
+      <use href="#leafRound" transform="translate(846 679) rotate(140) scale(1.26)"/>
+      <use href="#leafDrop" transform="translate(822 730) rotate(151) scale(1.48)"/>
+      <use href="#leafRound" transform="translate(778 752) rotate(164) scale(1.16)"/>
+      <use href="#leafDrop" transform="translate(752 797) rotate(168) scale(1.46)"/>
+      <use href="#leafRound" transform="translate(722 715) rotate(154) scale(1.06)"/>
+      <use href="#leafDrop" transform="translate(779 647) rotate(121) scale(1.22)"/>
+      <use href="#leafRound" transform="translate(818 536) rotate(77) scale(1.18)"/>
+      <use href="#leafDrop" transform="translate(704 548) rotate(26) scale(1.13)"/>
+      <use href="#leafRound" transform="translate(664 514) rotate(6) scale(.98)"/>
+      <use href="#leafDrop" transform="translate(673 614) rotate(112) scale(.98)"/>
+    </g>
+
+    <g fill="#FFFFFF" opacity=".74">
+      <circle cx="392" cy="451" r="7"/>
+      <circle cx="465" cy="584" r="5"/>
+      <circle cx="748" cy="474" r="6"/>
+      <circle cx="808" cy="614" r="5"/>
+      <circle cx="699" cy="691" r="4"/>
+    </g>
+
+    <path class="oxygen-tree__breath-line" d="M283 610H454l30-43 40 91 39-73 25 25h71l28-38 35 73 31-35h164" fill="none" stroke="url(#breathLine)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <path d="M598 942c-50 4-92 23-126 56M603 943c48 6 91 25 129 55M584 953c-18 27-30 50-35 70M615 953c19 25 31 49 38 71" fill="none" stroke="url(#trunk)" stroke-width="14" stroke-linecap="round" opacity=".68"/>
+  </g>
+
+  <g fill="none" stroke-width="3">
+    <ellipse class="oxygen-tree__root-ring" cx="600" cy="1008" rx="198" ry="48" stroke="#00C98B" opacity=".24"/>
+    <ellipse class="oxygen-tree__root-ring oxygen-tree__root-ring--2" cx="600" cy="1008" rx="198" ry="48" stroke="#00BDEB" opacity=".22"/>
+  </g>
+
+  <!-- Six transform-only particles keep the scene alive without turning it into visual noise. -->
+  <g>
+    <g class="oxygen-tree__particle oxygen-tree__particle--1">
+      <circle cx="253" cy="379" r="11" fill="#FFFFFF" fill-opacity=".82" stroke="#00C98B" stroke-opacity=".45" stroke-width="3"/>
+      <circle cx="253" cy="379" r="3" fill="#00C98B"/>
+    </g>
+    <g class="oxygen-tree__particle oxygen-tree__particle--2">
+      <circle cx="370" cy="278" r="8" fill="#FFFFFF" fill-opacity=".88" stroke="#00C98B" stroke-opacity=".38" stroke-width="3"/>
+    </g>
+    <g class="oxygen-tree__particle oxygen-tree__particle--3">
+      <circle cx="488" cy="337" r="10" fill="#FFFFFF" fill-opacity=".86" stroke="#00BDEB" stroke-opacity=".36" stroke-width="3"/>
+      <circle cx="488" cy="337" r="2.5" fill="#00BDEB"/>
+    </g>
+    <g class="oxygen-tree__particle oxygen-tree__particle--4">
+      <circle cx="713" cy="300" r="9" fill="#FFFFFF" fill-opacity=".88" stroke="#00BDEB" stroke-opacity=".4" stroke-width="3"/>
+    </g>
+    <g class="oxygen-tree__particle oxygen-tree__particle--5">
+      <circle cx="856" cy="338" r="12" fill="#FFFFFF" fill-opacity=".84" stroke="#2563EB" stroke-opacity=".34" stroke-width="3"/>
+      <circle cx="856" cy="338" r="3" fill="#2563EB"/>
+    </g>
+    <g class="oxygen-tree__particle oxygen-tree__particle--6">
+      <circle cx="952" cy="410" r="8" fill="#FFFFFF" fill-opacity=".9" stroke="#00BDEB" stroke-opacity=".4" stroke-width="3"/>
+    </g>
+  </g>
+</svg>

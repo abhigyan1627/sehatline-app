@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#07111f">
+  <meta name="description" content="SehatLine operations and administration dashboard">
+  <title>SehatLine Command Center</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./app-icon.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css?v=3">
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#overview" aria-label="SehatLine dashboard">
+        <span class="brand-mark animated-brand-mark" aria-hidden="true">
+          <img src="/assets/logos/sehatline-mark-frame.png" alt="">
+          <video autoplay muted loop playsinline preload="metadata"><source src="/assets/logos/sehatline-animated.mp4" type="video/mp4"></video>
+        </span>
+        <span><strong>SehatLine</strong><small>Command Center</small></span>
+      </a>
+
+      <nav class="primary-nav" aria-label="Admin navigation">
+        <p class="nav-label">Workspace</p>
+        <button class="nav-item active" data-view="overview">
+          <span class="nav-icon">⌂</span><span>Overview</span>
+        </button>
+        <button class="nav-item" data-view="doctors">
+          <span class="nav-icon">✚</span><span>Doctors</span><em id="doctorBadge">0</em>
+        </button>
+        <button class="nav-item" data-view="labs">
+          <span class="nav-icon">⌬</span><span>PathLabs</span><em id="labBadge">0</em>
+        </button>
+        <button class="nav-item" data-view="bookings">
+          <span class="nav-icon">▣</span><span>Bookings</span>
+        </button>
+        <button class="nav-item" data-view="users">
+          <span class="nav-icon">◉</span><span>Users</span>
+        </button>
+        <p class="nav-label">Growth</p>
+        <button class="nav-item" data-view="analytics">
+          <span class="nav-icon">↗</span><span>Analytics</span>
+        </button>
+        <button class="nav-item" data-view="notifications">
+          <span class="nav-icon">◇</span><span>Notifications</span>
+        </button>
+      </nav>
+
+      <div class="support-card">
+        <span class="spark">✦</span>
+        <strong>Sehat AI status</strong>
+        <p>Recommendation engine is ready for discovery queries.</p>
+        <span class="status-pill"><i></i> Operational</span>
+      </div>
+
+      <div class="admin-profile">
+        <div class="avatar">AK</div>
+        <span><strong>Admin</strong><small>City Operations</small></span>
+        <button class="icon-button" id="themeToggle" aria-label="Toggle color theme">☾</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-button menu-button" id="menuToggle" aria-label="Open navigation">☰</button>
+        <div>
+          <p class="eyebrow" id="pageEyebrow">Operations overview</p>
+          <h1 id="pageTitle">Good evening, Admin</h1>
+        </div>
+        <div class="topbar-actions">
+          <label class="global-search">
+            <span>⌕</span>
+            <input id="globalSearch" type="search" placeholder="Search doctors, labs, bookings">
+            <kbd>⌘ K</kbd>
+          </label>
+          <button class="icon-button notification-button" aria-label="Notifications">♢<i></i></button>
+          <button class="primary-button" id="quickAddButton"><span>＋</span> Quick add</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-overview">
+        <div class="hero-card">
+          <div>
+            <div class="live-chip"><i></i> Live city pulse</div>
+            <h2>Healthcare operations,<br><span>beautifully under control.</span></h2>
+            <p>Monitor bookings, partner quality, queues and patient experience from one intelligent workspace.</p>
+            <div class="hero-actions">
+              <button class="primary-button" data-jump="doctors">Review pending partners</button>
+              <button class="ghost-button" data-jump="analytics">View city insights <span>→</span></button>
+            </div>
+          </div>
+          <div class="city-orbit" aria-label="Live city activity">
+            <div class="orbit-ring ring-one"></div>
+            <div class="orbit-ring ring-two"></div>
+            <div class="orbit-core"><span id="liveBookings">24</span><small>live<br>bookings</small></div>
+            <span class="orbit-dot doctor-dot">✚</span>
+            <span class="orbit-dot lab-dot">⌬</span>
+            <span class="orbit-dot patient-dot">●</span>
+          </div>
+        </div>
+
+        <div class="metric-grid" id="metricGrid">
+          <article class="metric-card">
+            <div class="metric-head"><span class="metric-icon green">◉</span><span class="trend up">+12.8%</span></div>
+            <p>Total patients</p><strong data-metric="users">—</strong><small>Active in launch city</small>
+          </article>
+          <article class="metric-card">
+            <div class="metric-head"><span class="metric-icon blue">✚</span><span class="trend up">+3 this week</span></div>
+            <p>Verified doctors</p><strong data-metric="doctors">—</strong><small><b data-metric="pendingDoctors">—</b> awaiting review</small>
+          </article>
+          <article class="metric-card">
+            <div class="metric-head"><span class="metric-icon violet">⌬</span><span class="trend neutral">Launch network</span></div>
+            <p>Partner labs</p><strong data-metric="labs">—</strong><small><b data-metric="pendingLabs">—</b> awaiting review</small>
+          </article>
+          <article class="metric-card">
+            <div class="metric-head"><span class="metric-icon cyan">▣</span><span class="trend up">+18.3%</span></div>
+            <p>Total bookings</p><strong data-metric="bookings">—</strong><small>₹<b data-metric="revenue">—</b> gross value</small>
+          </article>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="panel activity-panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">Booking velocity</p><h3>Activity overview</h3></div>
+              <select id="chartRange" aria-label="Chart time range"><option>Last 7 days</option><option>Last 30 days</option></select>
+            </div>
+            <div class="chart-legend"><span><i class="legend-bookings"></i> Bookings</span><span><i class="legend-revenue"></i> Revenue</span></div>
+            <div class="bar-chart" id="activityChart" aria-label="Weekly booking chart"></div>
+          </article>
+
+          <article class="panel queue-panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">Real-time</p><h3>Clinic queue health</h3></div>
+              <button class="text-button" data-jump="bookings">View all</button>
+            </div>
+            <div class="queue-score">
+              <div class="score-ring"><strong>86</strong><small>/100</small></div>
+              <div><strong>Healthy</strong><p>Most clinics are running on time.</p></div>
+            </div>
+            <div class="queue-stats">
+              <span><b>12m</b><small>Avg. wait</small></span>
+              <span><b>3</b><small>Delayed</small></span>
+              <span><b>8</b><small>Live OPDs</small></span>
+            </div>
+          </article>
+        </div>
+
+        <div class="dashboard-grid lower-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">Needs attention</p><h3>Pending verifications</h3></div>
+              <button class="text-button" data-jump="doctors">Open review queue</button>
+            </div>
+            <div class="compact-list" id="pendingList"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <div><p class="eyebrow">Latest updates</p><h3>Operations activity</h3></div>
+              <button class="icon-button">•••</button>
+            </div>
+            <div class="timeline" id="activityFeed"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-doctors">
+        <div class="section-heading">
+          <div><p class="eyebrow">Partner network</p><h2>Doctor management</h2><p>Verify professionals, manage visibility, fees and clinic availability.</p></div>
+          <button class="primary-button" data-open-modal="doctor">＋ Add doctor</button>
+        </div>
+        <div class="toolbar">
+          <label class="table-search"><span>⌕</span><input data-table-search="doctors" placeholder="Search by name or specialty"></label>
+          <div class="filter-tabs" data-filter-group="doctors">
+            <button class="active" data-filter="all">All</button><button data-filter="verified">Verified</button><button data-filter="pending">Pending</button><button data-filter="rejected">Rejected</button>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="data-table doctor-table">
+            <div class="table-row table-header"><span>Doctor</span><span>Specialty</span><span>Registration</span><span>Fee</span><span>Status</span><span>Action</span></div>
+            <div id="doctorRows"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-labs">
+        <div class="section-heading">
+          <div><p class="eyebrow">Diagnostics network</p><h2>PathLab management</h2><p>Manage partners, tests, pricing, accreditation and home collection.</p></div>
+          <button class="primary-button" data-open-modal="lab">＋ Add PathLab</button>
+        </div>
+        <div class="toolbar">
+          <label class="table-search"><span>⌕</span><input data-table-search="labs" placeholder="Search labs or locations"></label>
+          <div class="filter-tabs" data-filter-group="labs">
+            <button class="active" data-filter="all">All</button><button data-filter="verified">Verified</button><button data-filter="pending">Pending</button>
+          </div>
+        </div>
+        <div class="lab-grid" id="labGrid"></div>
+      </section>
+
+      <section class="view" id="view-bookings">
+        <div class="section-heading">
+          <div><p class="eyebrow">Care operations</p><h2>Booking management</h2><p>Track appointments and resolve exceptions across the city.</p></div>
+          <button class="ghost-button" id="exportBookings">⇩ Export CSV</button>
+        </div>
+        <div class="booking-summary">
+          <article><span class="metric-icon green">✓</span><div><strong id="confirmedCount">0</strong><small>Confirmed</small></div></article>
+          <article><span class="metric-icon cyan">◷</span><div><strong id="pendingCount">0</strong><small>Pending</small></div></article>
+          <article><span class="metric-icon violet">↻</span><div><strong id="completedCount">0</strong><small>Completed</small></div></article>
+          <article><span class="metric-icon coral">×</span><div><strong id="cancelledCount">0</strong><small>Cancelled</small></div></article>
+        </div>
+        <div class="toolbar">
+          <label class="table-search"><span>⌕</span><input data-table-search="bookings" placeholder="Search booking, patient or doctor"></label>
+          <select id="bookingStatusFilter"><option value="all">All statuses</option><option value="confirmed">Confirmed</option><option value="pending">Pending</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select>
+        </div>
+        <div class="table-card">
+          <div class="data-table booking-table">
+            <div class="table-row table-header"><span>Booking</span><span>Patient</span><span>Care provider</span><span>Schedule</span><span>Amount</span><span>Status</span></div>
+            <div id="bookingRows"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-users">
+        <div class="section-heading">
+          <div><p class="eyebrow">Community</p><h2>User management</h2><p>Understand patient activity and support every healthcare journey.</p></div>
+        </div>
+        <div class="user-insight-grid">
+          <article class="insight-card"><span>New this week</span><strong>38</strong><small>↑ 14% from last week</small></article>
+          <article class="insight-card"><span>Repeat patients</span><strong>64%</strong><small>Healthy retention</small></article>
+          <article class="insight-card"><span>Support resolution</span><strong>1.8h</strong><small>Average response time</small></article>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div><p class="eyebrow">Patient directory</p><h3>Recent users</h3></div><label class="table-search"><span>⌕</span><input data-table-search="users" placeholder="Search users"></label></div>
+          <div class="people-grid" id="userGrid"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-analytics">
+        <div class="section-heading">
+          <div><p class="eyebrow">City intelligence</p><h2>Performance analytics</h2><p>Turn discovery, booking and partner data into local growth decisions.</p></div>
+          <select><option>July 2026</option><option>June 2026</option></select>
+        </div>
+        <div class="analytics-grid">
+          <article class="panel wide">
+            <div class="panel-head"><div><p class="eyebrow">Demand signal</p><h3>Top specialties</h3></div><span class="status-pill"><i></i> Live data</span></div>
+            <div class="horizontal-bars" id="specialtyBars"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><p class="eyebrow">Conversion</p><h3>Search to booking</h3></div></div>
+            <div class="conversion-ring"><strong>38%</strong><span>+6.2%</span></div>
+            <p class="center-note">Patients are finding suitable care faster than last month.</p>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><p class="eyebrow">Top test</p><h3>Thyroid profile</h3></div><span class="metric-icon violet">⌬</span></div>
+            <div class="big-stat"><strong>128</strong><span>searches</span></div>
+            <div class="mini-progress"><i style="width:74%"></i></div>
+            <small>74% resulted in a lab comparison</small>
+          </article>
+          <article class="panel wide">
+            <div class="panel-head"><div><p class="eyebrow">AI intelligence</p><h3>What patients ask Sehat AI</h3></div></div>
+            <div class="query-cloud">
+              <span>female skin doctor under ₹500</span><span>cheapest thyroid test</span><span>doctor near me</span><span>fastest CBC report</span><span>Hindi speaking pediatrician</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view" id="view-notifications">
+        <div class="section-heading">
+          <div><p class="eyebrow">Patient engagement</p><h2>Notification center</h2><p>Send useful, timely and city-specific updates without creating noise.</p></div>
+          <button class="primary-button" data-open-modal="notification">＋ Create notification</button>
+        </div>
+        <div class="notification-layout">
+          <div class="panel composer-preview">
+            <p class="eyebrow">Mobile preview</p>
+            <div class="phone-preview">
+              <div class="phone-notch"></div>
+              <div class="phone-time">9:41</div>
+              <div class="push-card">
+                <div class="push-logo">S</div>
+                <div><span>SEHATLINE · NOW</span><strong id="previewTitle">Your healthcare update</strong><p id="previewMessage">Important care information will appear here.</p></div>
+              </div>
+              <div class="preview-glow"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><div><p class="eyebrow">Delivery history</p><h3>Recent notifications</h3></div></div>
+            <div class="notification-list" id="notificationList"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <section class="modal" id="entityModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-head"><div><p class="eyebrow">SehatLine operations</p><h2 id="modalTitle">Quick add</h2></div><button class="icon-button" id="closeModal" aria-label="Close modal">×</button></div>
+      <form id="entityForm">
+        <div id="formFields"></div>
+        <p class="form-error" id="formError" role="alert" hidden></p>
+        <div class="modal-actions">
+          <button type="button" class="ghost-button" id="cancelModal">Cancel</button>
+          <button type="button" class="danger-button" id="rejectDoctor" hidden>Reject application</button>
+          <button type="submit" class="ghost-button" id="saveEntity">Save details</button>
+          <button type="button" class="primary-button" id="verifyDoctor" hidden>Verify doctor</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.js?v=4"></script>
+</body>
+</html>

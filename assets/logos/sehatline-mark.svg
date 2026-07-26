@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">SehatLine app mark</title>
+  <desc id="desc">A rounded health shield containing an S shaped heartbeat line.</desc>
+  <defs>
+    <linearGradient id="bg" x1="12" y1="10" x2="116" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00C98B"/>
+      <stop offset=".52" stop-color="#00C8FF"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feComposite in="blur" in2="SourceGraphic" operator="out"/>
+      <feColorMatrix values="0 0 0 0 0 0 0 0 0 0.78 0 0 0 0 1 0 0 0 .35 0"/>
+      <feBlend in2="SourceGraphic"/>
+    </filter>
+  </defs>
+  <path d="M64 7 109 24v34c0 30-18.8 52.7-45 63-26.2-10.3-45-33-45-63V24L64 7Z" fill="url(#bg)" filter="url(#glow)"/>
+  <path d="M64 18 99 31v27c0 23.2-13.6 41.6-35 51-21.4-9.4-35-27.8-35-51V31l35-13Z" fill="#07111F" fill-opacity=".13" stroke="#fff" stroke-opacity=".28" stroke-width="2"/>
+  <path d="M38 64h13l5.8-15 10.3 31L74 63h16" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="38" cy="64" r="3.5" fill="#fff"/>
+  <circle cx="90" cy="63" r="3.5" fill="#fff"/>
+</svg>

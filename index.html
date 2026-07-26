@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07111f">
+  <title>SehatLine · Smarter Care. Better Life.</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@700;800&display=swap");
+    :root{--green:#00c98b;--cyan:#00c8ff;--blue:#2563eb;--violet:#7c3aed;--ink:#f8fbff;--muted:#91a3b7;--line:rgba(255,255,255,.09)}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--ink);font-family:Inter,system-ui,sans-serif;background:#07111f;overflow-x:hidden}
+    body:before{content:"";position:fixed;inset:0;z-index:-2;background:radial-gradient(circle at 78% 10%,rgba(0,200,255,.15),transparent 26%),radial-gradient(circle at 15% 82%,rgba(124,58,237,.13),transparent 28%),linear-gradient(135deg,#07111f,#0a1a2b 60%,#07232a)}
+    body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.1;background-image:linear-gradient(rgba(255,255,255,.1) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.1) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(120deg,black,transparent 72%)}
+    .shell{width:min(1180px,calc(100% - 36px));margin:auto;padding:28px 0 45px}.nav{display:flex;align-items:center;justify-content:space-between}.brand{display:flex;align-items:center;gap:12px}.brand-media{position:relative;width:44px;height:44px;flex:0 0 44px;overflow:hidden;border-radius:14px;background:#c9eefd;box-shadow:0 10px 24px rgba(0,201,139,.24)}.brand-media img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.brand-media video{position:absolute;z-index:1;left:50%;top:50%;width:490%;height:490%;max-width:none;object-fit:cover;transform:translate(-50.8%,-40.9%)}.brand strong{display:block;font:800 18px Manrope}.brand small{display:block;color:var(--muted);font-size:9px;letter-spacing:1.5px;margin-top:3px}.api{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(0,201,139,.14);border-radius:999px;padding:8px 12px;background:rgba(0,201,139,.07);color:#74eabe;font-size:10px;font-weight:700}.api i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 5px rgba(0,201,139,.1)}
+    .hero{display:grid;grid-template-columns:1.15fr .85fr;gap:70px;align-items:center;min-height:430px;padding:70px 0 42px}.chip{display:inline-flex;gap:8px;align-items:center;padding:7px 11px;border:1px solid rgba(0,200,255,.12);border-radius:999px;background:rgba(0,200,255,.06);color:#7ee6ff;font-size:10px;font-weight:700}.hero h1{font:800 clamp(44px,6vw,78px)/.98 Manrope;margin:20px 0;letter-spacing:-3px}.hero h1 span{background:linear-gradient(90deg,#4ae4b1,#56dbff 58%,#a894ff);background-clip:text;color:transparent}.hero p{max-width:650px;color:var(--muted);font-size:14px;line-height:1.75}.stats{display:flex;gap:30px;margin-top:28px}.stats strong,.stats small{display:block}.stats strong{font:800 21px Manrope}.stats small{color:#6f8297;font-size:8px;text-transform:uppercase;letter-spacing:1px;margin-top:4px}
+    .orb-wrap{height:310px;display:grid;place-items:center;position:relative}.orb{width:180px;height:180px;border-radius:50%;display:grid;place-items:center;overflow:hidden;background:#c9eefd;box-shadow:0 0 90px rgba(0,200,255,.2),inset 0 0 55px rgba(255,255,255,.16);animation:pulse 4s ease-in-out infinite}.orb video{width:100%;height:100%;object-fit:cover}.ring{position:absolute;border:1px solid rgba(91,224,190,.15);border-radius:50%;animation:spin 18s linear infinite}.r1{width:245px;height:245px;border-left-color:var(--green)}.r2{width:300px;height:300px;border-right-color:var(--cyan);animation-direction:reverse}.dot{position:absolute;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;background:#102438;border:1px solid var(--line);box-shadow:0 10px 25px rgba(0,0,0,.25)}.d1{top:28px;right:45px;color:var(--green)}.d2{bottom:23px;left:53px;color:var(--cyan)}.d3{top:128px;left:8px;color:#ae99ff}@keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{50%{transform:scale(1.045);box-shadow:0 0 110px rgba(0,200,255,.27),inset 0 0 55px rgba(255,255,255,.18)}}
+    .section-head{display:flex;justify-content:space-between;align-items:end;margin:5px 0 18px}.section-head p{margin:0 0 6px;color:var(--green);font-size:9px;text-transform:uppercase;letter-spacing:1.5px;font-weight:800}.section-head h2{font:800 25px Manrope;margin:0;letter-spacing:-.7px}.section-head span{color:var(--muted);font-size:10px}
+    .portals{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}.portal{min-height:235px;padding:23px;border:1px solid var(--line);border-radius:24px;color:inherit;text-decoration:none;position:relative;overflow:hidden;background:linear-gradient(145deg,rgba(255,255,255,.065),rgba(255,255,255,.025));backdrop-filter:blur(16px);transition:.25s ease}.portal:after{content:"";position:absolute;width:150px;height:150px;right:-85px;top:-85px;border-radius:50%;background:var(--accent);filter:blur(28px);opacity:.3}.portal:hover{transform:translateY(-6px);border-color:color-mix(in srgb,var(--accent) 35%,transparent);box-shadow:0 22px 50px rgba(0,0,0,.18)}.portal-icon{width:48px;height:48px;border-radius:15px;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 13%,transparent);color:var(--accent);font-size:23px}.portal h3{font:800 18px Manrope;margin:26px 0 8px}.portal p{color:var(--muted);font-size:10px;line-height:1.6;margin:0 0 22px}.portal b{font-size:10px;color:var(--accent)}.patient{--accent:var(--green)}.doctor{--accent:var(--cyan)}.admin{--accent:#a78bfa}.footer{display:flex;justify-content:space-between;color:#607389;font-size:9px;padding:30px 5px 0}.footer a{color:#8fa7be;text-decoration:none}
+    @media(max-width:780px){.hero{grid-template-columns:1fr;padding-top:55px;gap:20px}.orb-wrap{display:none}.portals{grid-template-columns:1fr}.portal{min-height:190px}.section-head{align-items:flex-start;flex-direction:column;gap:8px}.hero h1{letter-spacing:-2px}.stats{gap:17px}.footer{gap:12px;flex-direction:column}.api{font-size:0}.api i{margin:0}}@media(prefers-reduced-motion:reduce){.brand-media video,.orb video{display:none}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <nav class="nav">
+      <div class="brand"><span class="brand-media" aria-hidden="true"><img src="/assets/logos/sehatline-mark-frame.png" alt=""><video autoplay muted loop playsinline preload="metadata"><source src="/assets/logos/sehatline-animated.mp4" type="video/mp4"></video></span><span><strong>SehatLine</strong><small>SMARTER CARE. BETTER LIFE.</small></span></div>
+      <span class="api" id="apiStatus"><i></i><span>Checking care network…</span></span>
+    </nav>
+    <section class="hero">
+      <div>
+        <span class="chip">✦ AI-powered healthcare discovery</span>
+        <h1>Better care starts<br>with a <span>smarter choice.</span></h1>
+        <p>One connected platform for patients, doctors and diagnostics—built to make trusted local healthcare easier to discover, compare and manage.</p>
+        <div class="stats"><span><strong>3</strong><small>Connected apps</small></span><span><strong>1</strong><small>Care network</small></span><span><strong>24/7</strong><small>Sehat AI</small></span></div>
+      </div>
+      <div class="orb-wrap" aria-hidden="true">
+        <span class="ring r1"></span><span class="ring r2"></span>
+        <div class="orb"><video autoplay muted loop playsinline preload="auto" poster="/assets/logos/sehatline-logo-poster.png"><source src="/assets/logos/sehatline-animated.mp4" type="video/mp4"></video></div>
+        <span class="dot d1">✚</span><span class="dot d2">⌬</span><span class="dot d3">✦</span>
+      </div>
+    </section>
+    <div class="section-head"><div><p>Choose a workspace</p><h2>The complete SehatLine ecosystem</h2></div><span>All surfaces share one live API and launch-city dataset.</span></div>
+    <section class="portals">
+      <a class="portal patient" href="/patient"><span class="portal-icon">♡</span><h3>Patient App</h3><p>Find and compare doctors and labs, book appointments, track queues and ask Sehat AI.</p><b>Enter patient experience →</b></a>
+      <a class="portal doctor" href="/doctor"><span class="portal-icon">✚</span><h3>Doctor App</h3><p>Manage today's appointments, live OPD queue, patients, availability and profile.</p><b>Enter doctor workspace →</b></a>
+      <a class="portal admin" href="/admin"><span class="portal-icon">⌁</span><h3>Command Center</h3><p>Run partner verification, bookings, users, notifications and city analytics.</p><b>Enter admin dashboard →</b></a>
+    </section>
+    <footer class="footer"><span>SehatLine MVP · Premium outside, simple inside.</span><span><a href="/api/health">API health</a> · <a href="/api/docs">API reference</a></span></footer>
+  </main>
+  <script>
+    fetch("/api/health").then(r=>{if(!r.ok)throw new Error()}).then(()=>{apiStatus.innerHTML="<i></i><span>Care network operational</span>"}).catch(()=>{apiStatus.innerHTML="<i style='background:#f59e0b'></i><span>Demo mode</span>"});
+  </script>
+</body>
+</html>
