@@ -478,5 +478,20 @@ export function createSeedDatabase() {
     }
   };
   database.doctors = [];
+  database.labs = [];
+  database.bookings = [];
+  database.users = [];
+  database.reports = [];
+  database.notifications = [];
+  database.queues = {};
+  database.doctorWorkspace = {
+    doctorId: null,
+    dashboard: { metrics: [] },
+    appointments: [],
+    patients: [],
+    profile: {},
+    analytics: {},
+    schedules: []
+  };
   return database;
 }

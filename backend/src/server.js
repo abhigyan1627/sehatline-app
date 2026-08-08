@@ -1,9 +1,9 @@
 import http from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes, randomUUID } from "node:crypto";
-import { JsonStore } from "./store.js";
+import { JsonStore, MongoStore } from "./store.js";
 import { connectDatabase } from "./config/database.js";
 import { AdminAuthService, adminErrorPayload } from "./admin-auth.js";
 
@@ -610,6 +610,49 @@ function sendError(response, statusCode, message, details) {
   sendJson(response, statusCode, { error: { message, ...(details ? { details } : {}) } });
 }
 
+function bearerToken(request) {
+  const match = String(request.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
+  return match?.[1] || "";
+}
+
+function ensureDoctorQueue(database, doctorId, date = new Date().toISOString().slice(0, 10)) {
+  database.queues ||= {};
+  const queue = database.queues[doctorId] ||= {
+    doctorId,
+    date,
+    status: "closed",
+    capacity: 0,
+    issued: 0,
+    currentToken: "—",
+    current: null,
+    waiting: [],
+    seen: 0,
+    expectedMinutes: 15,
+    delayMinutes: 0,
+    updatedAt: new Date().toISOString()
+  };
+  if (queue.date !== date) {
+    Object.assign(queue, { date, status: "closed", issued: 0, currentToken: "—", current: null, waiting: [] });
+  }
+  return queue;
+}
+
+function scheduleSlots(startTime, endTime, durationMinutes, capacity) {
+  const parse = value => {
+    const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+    return match ? Number(match[1]) * 60 + Number(match[2]) : NaN;
+  };
+  const start = parse(startTime);
+  const end = parse(endTime);
+  const duration = Math.max(5, Number(durationMinutes) || 15);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
+  const slots = [];
+  for (let minute = start; minute + duration <= end && slots.length < Math.max(1, Number(capacity) || 100); minute += duration) {
+    slots.push({ time: `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`, available: true });
+  }
+  return slots;
+}
+
 async function readJson(request) {
   let body = "";
   for await (const chunk of request) {
@@ -769,6 +812,13 @@ async function routeApi(request, response, url, store, runtime = {}) {
   const useIdentitySandbox = runtime.identitySandboxEnabled ?? identitySandboxEnabled;
   const useOtpSandbox = runtime.otpSandboxEnabled ?? otpSandboxEnabled;
   const adminAuth = runtime.adminAuth;
+  const doctorSessions = runtime.doctorSessions;
+
+  const requireDoctor = () => {
+    const doctorId = doctorSessions.get(bearerToken(request));
+    if (!doctorId) throw Object.assign(new Error("Doctor login required"), { statusCode: 401 });
+    return doctorId;
+  };
 
   if (method === "OPTIONS") {
     sendJson(response, 204, null);
@@ -844,6 +894,31 @@ async function routeApi(request, response, url, store, runtime = {}) {
     if (auth.admin.mustChangePassword) throw Object.assign(new Error("Password change required"), { statusCode: 403, code: "PASSWORD_CHANGE_REQUIRED" });
     adminAuth.requirePermission(auth, "dashboard");
     sendJson(response, 200, calculateOverview(database));
+    return true;
+  }
+
+  if (pathname === "/api/uploads/profile-photo" && method === "POST") {
+    const input = await readJson(request);
+    const match = String(input.dataUrl || "").match(/^data:image\/(png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) { sendError(response, 422, "A valid profile image is required"); return true; }
+    const uploadRoot = path.resolve(runtime.uploadRoot || process.env.SEHATLINE_UPLOAD_ROOT || path.join(projectRoot, "uploads"));
+    await mkdir(uploadRoot, { recursive: true });
+    const filename = `${String(input.role || "profile").replace(/[^a-z0-9-]/gi, "-")}-${randomUUID()}.${match[1] === "jpeg" ? "jpg" : match[1]}`;
+    await writeFile(path.join(uploadRoot, filename), Buffer.from(match[2], "base64"));
+    sendJson(response, 201, { url: `/uploads/${filename}` });
+    return true;
+  }
+  if (pathname === "/api/location/reverse" && method === "POST") {
+    const input = await readJson(request);
+    let location = { city: database.meta?.city || "Prayagraj", state: "Uttar Pradesh", country: "India" };
+    try {
+      const providerResponse = await providerFetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(input.latitude)}&lon=${encodeURIComponent(input.longitude)}`, { headers: { "User-Agent": "SehatLine/1.0" } });
+      if (providerResponse.ok) {
+        const payload = await providerResponse.json();
+        location = { ...location, ...payload.address, displayName: payload.display_name };
+      }
+    } catch { /* location remains city default */ }
+    sendJson(response, 200, location);
     return true;
   }
   const adminDataRoutes = new Map([
@@ -1138,8 +1213,23 @@ async function routeApi(request, response, url, store, runtime = {}) {
   if ((pathname === "/api/bookings" || pathname === "/api/appointments") && method === "POST") {
     const input = await readJson(request);
     const booking = normalizeBooking(input, database);
+    if (booking.providerType === "doctor") {
+      const schedule = database.doctorSchedules?.[booking.doctorId]?.[booking.date];
+      const queue = ensureDoctorQueue(database, booking.doctorId, booking.date);
+      if (schedule && queue.issued >= schedule.capacity) {
+        sendError(response, 409, "The doctor's daily appointment capacity is full");
+        return true;
+      }
+      booking.token = `T${String((queue.issued || 0) + 1).padStart(3, "0")}`;
+    }
     await store.mutate(data => {
       data.bookings.unshift(booking);
+      if (booking.providerType === "doctor") {
+        const queue = ensureDoctorQueue(data, booking.doctorId, booking.date);
+        queue.issued += 1;
+        queue.capacity ||= data.doctorSchedules?.[booking.doctorId]?.[booking.date]?.capacity || 0;
+        queue.waiting.push({ token: booking.token, name: booking.patientName, reason: booking.reason || "Consultation", appointmentId: booking.id, checkedIn: true, wait: queue.waiting.length * queue.expectedMinutes });
+      }
       if (booking.providerType === "doctor" && booking.doctorId === data.doctorWorkspace.doctorId) {
         data.doctorWorkspace.appointments.push(doctorAppointmentFromBooking(booking, data.doctorWorkspace));
       }
@@ -1211,7 +1301,11 @@ async function routeApi(request, response, url, store, runtime = {}) {
   if (queueMatch && method === "GET") {
     const queue = database.queues[decodeURIComponent(queueMatch[1])];
     if (!queue) sendError(response, 404, "Queue not found");
-    else sendJson(response, 200, queue);
+    else {
+      const token = searchParams.get("token");
+      const ahead = token ? queue.waiting.findIndex(item => item.token === token) : -1;
+      sendJson(response, 200, { ...queue, remaining: Math.max(0, Number(queue.capacity || 0) - Number(queue.issued || 0)), live: token ? { patientStatus: ahead >= 0 ? "waiting" : queue.current?.token === token ? "in-progress" : "unknown", ahead: Math.max(0, ahead) } : undefined });
+    }
     return true;
   }
   const queueActionMatch = pathname.match(/^\/api\/queues\/([^/]+)\/action$/);
@@ -1230,6 +1324,31 @@ async function routeApi(request, response, url, store, runtime = {}) {
 
   if (pathname === "/api/doctor/dashboard" && method === "GET") {
     sendJson(response, 200, database.doctorWorkspace.dashboard);
+    return true;
+  }
+  if (pathname === "/api/doctor/schedule" && method === "PUT") {
+    const doctorId = requireDoctor();
+    const input = await readJson(request);
+    const date = String(input.date || new Date().toISOString().slice(0, 10));
+    const capacity = Math.max(1, Number(input.maxDailyTokens) || 100);
+    const slots = scheduleSlots(input.startTime, input.endTime, input.durationMinutes, capacity);
+    if (!slots.length) { sendError(response, 422, "Provide a valid schedule window"); return true; }
+    const schedule = { id: `schedule-${date}`, doctorId, date, startTime: input.startTime, endTime: input.endTime, durationMinutes: Number(input.durationMinutes) || 15, capacity: slots.length, maxDailyTokens: capacity, bookedCount: 0, remainingTokens: slots.length, slots };
+    await store.mutate(data => {
+      data.doctorSchedules ||= {};
+      data.doctorSchedules[doctorId] ||= {};
+      data.doctorSchedules[doctorId][date] = schedule;
+      data.doctorWorkspace.doctorId = doctorId;
+      ensureDoctorQueue(data, doctorId, date).capacity = slots.length;
+    });
+    sendJson(response, 200, schedule);
+    return true;
+  }
+  const doctorSlotsMatch = pathname.match(/^\/api\/doctors\/([^/]+)\/slots$/);
+  if (doctorSlotsMatch && method === "GET") {
+    const doctorId = decodeURIComponent(doctorSlotsMatch[1]);
+    const schedule = database.doctorSchedules?.[doctorId]?.[searchParams.get("date")];
+    sendJson(response, 200, schedule || { doctorId, date: searchParams.get("date"), capacity: 0, slots: [] });
     return true;
   }
   if (pathname === "/api/doctor/appointments" && method === "GET") {
@@ -1532,16 +1651,117 @@ async function routeApi(request, response, url, store, runtime = {}) {
       sendError(response, 401, "The OTP is invalid or expired", error.message);
       return true;
     }
+    const isDoctorLogin = pathname.includes("/doctor/");
+    const matchedDoctor = isDoctorLogin ? database.doctors.find(item => phoneDigits(item.phone) === phone && verified(item)) : null;
+    if (isDoctorLogin && !matchedDoctor) {
+      sendError(response, 403, "This mobile number is not registered to an approved doctor");
+      return true;
+    }
     const existingPatient = database.users.find(item => phoneDigits(item.phone) === phone);
+    const sessionToken = `${isDoctorLogin ? "doctor" : "patient"}-${randomUUID()}`;
+    if (isDoctorLogin) doctorSessions.set(sessionToken, matchedDoctor.id);
     sendJson(response, 200, {
       verified: true,
       provider: msg91SendOtpConfigured ? "msg91" : "local-sandbox",
-      token: `session-${randomUUID()}`,
-      user: pathname.includes("/doctor/")
-        ? database.doctorWorkspace.profile
+      token: sessionToken,
+      user: isDoctorLogin
+        ? publicDoctor(matchedDoctor)
         : existingPatient || { id: slugId("user"), name: "SehatLine Member", phone: `+91 ${phone.slice(0, 5)} ${phone.slice(5)}` },
-      doctor: pathname.includes("/doctor/") ? database.doctorWorkspace.profile : undefined
+      doctor: isDoctorLogin ? publicDoctor(matchedDoctor) : undefined
     });
+    return true;
+  }
+
+  const receptionistAuth = async () => {
+    const auth = await adminAuth.authenticate(request);
+    if (![
+      "receptionist",
+      "super_admin"
+    ].includes(auth.admin.role)) throw Object.assign(new Error("Receptionist access required"), { statusCode: 403, code: "ACCESS_DENIED" });
+    return auth;
+  };
+  const receptionistAccess = async () => {
+    const auth = await receptionistAuth();
+    if (auth.admin.mustChangePassword) throw Object.assign(new Error("Password change required"), { statusCode: 403, code: "PASSWORD_CHANGE_REQUIRED" });
+    const doctorId = String(searchParams.get("doctorId") || (await readJson(request).catch(() => ({}))).doctorId || "");
+    if (auth.admin.role !== "super_admin" && (!doctorId || !auth.admin.assignedDoctorIds.includes(doctorId))) {
+      throw Object.assign(new Error("This doctor is not assigned to your account"), { statusCode: 403, code: "DOCTOR_ACCESS_DENIED" });
+    }
+    return { auth, doctorId };
+  };
+  if (pathname === "/api/receptionist/auth/change-password" && method === "POST") {
+    const auth = await receptionistAuth();
+    adminAuth.verifyCsrf(request, auth);
+    await adminAuth.changePassword(auth, await readJson(request));
+    sendJson(response, 200, { changed: true }, { "Set-Cookie": adminAuth.clearCookie() });
+    return true;
+  }
+  if (pathname === "/api/receptionist/auth/me" && method === "GET") {
+    const auth = await receptionistAuth();
+    const doctors = database.doctors.filter(doctor => auth.admin.role === "super_admin" || auth.admin.assignedDoctorIds.includes(doctor.id)).map(publicDoctor);
+    sendJson(response, 200, { admin: auth.admin, doctors });
+    return true;
+  }
+  if (pathname.startsWith("/api/receptionist/")) {
+    const auth = await receptionistAuth();
+    if (auth.admin.mustChangePassword) throw Object.assign(new Error("Password change required"), { statusCode: 403, code: "PASSWORD_CHANGE_REQUIRED" });
+    const input = ["POST", "PATCH", "PUT"].includes(method) ? await readJson(request) : {};
+    const doctorId = String(searchParams.get("doctorId") || input.doctorId || "");
+    if (auth.admin.role !== "super_admin" && (!doctorId || !auth.admin.assignedDoctorIds.includes(doctorId))) {
+      throw Object.assign(new Error("This doctor is not assigned to your account"), { statusCode: 403, code: "DOCTOR_ACCESS_DENIED" });
+    }
+    const doctor = database.doctors.find(item => item.id === doctorId);
+    if (!doctor) { sendError(response, 404, "Assigned doctor not found"); return true; }
+    const date = String(searchParams.get("date") || input.date || new Date().toISOString().slice(0, 10));
+    const schedule = database.doctorSchedules?.[doctorId]?.[date]
+      || database.doctorWorkspaces?.[doctorId]?.schedules?.find(item => item.date === date)
+      || (database.doctorWorkspace?.doctorId === doctorId ? database.doctorWorkspace.schedules?.find(item => item.date === date) : null);
+    const queue = ensureDoctorQueue(database, doctorId, date);
+    if (schedule) queue.capacity ||= Number(schedule.capacity || schedule.maxDailyTokens || schedule.slots?.length || 0);
+    if (pathname === "/api/receptionist/dashboard" && method === "GET") {
+      const appointments = database.bookings.filter(item => item.doctorId === doctorId && item.date === date).map(item => doctorAppointmentFromBooking(item, { appointments: [] }));
+      const patients = database.users.filter(item => appointments.some(appointment => phoneDigits(appointment.phone) === phoneDigits(item.phone)));
+      sendJson(response, 200, { doctor: publicDoctor(doctor), doctors: [publicDoctor(doctor)], appointments, queue, patients, metrics: { totalAppointments: appointments.length, checkedIn: appointments.filter(item => ["checked-in", "in-progress"].includes(item.status)).length, waiting: queue.waiting.length, completed: appointments.filter(item => item.status === "completed").length, remainingTokens: Math.max(0, Number(queue.capacity || 0) - Number(queue.issued || 0)) } });
+      return true;
+    }
+    if (pathname === "/api/receptionist/patients" && method === "GET") {
+      const query = String(searchParams.get("q") || "").toLowerCase();
+      const patients = (database.users || []).filter(item => !query || `${item.name} ${item.phone}`.toLowerCase().includes(query));
+      sendJson(response, 200, patients);
+      return true;
+    }
+    const receptionistAppointment = pathname.match(/^\/api\/receptionist\/appointments\/([^/]+)$/);
+    if (receptionistAppointment && method === "PATCH") {
+      let updated;
+      await store.mutate(data => {
+        const booking = data.bookings.find(item => item.id === decodeURIComponent(receptionistAppointment[1]) && item.doctorId === doctorId);
+        if (!booking) return;
+        booking.status = input.status || booking.status;
+        updated = booking;
+        const queueEntry = ensureDoctorQueue(data, doctorId, booking.date).waiting.find(item => item.appointmentId === booking.id);
+        if (queueEntry) queueEntry.checkedIn = booking.status === "checked-in";
+      });
+      if (!updated) sendError(response, 404, "Appointment not found"); else sendJson(response, 200, updated);
+      return true;
+    }
+    const queueAction = pathname.match(/^\/api\/receptionist\/queue\/(start|resume|pause|next|notify|close|delay)$/);
+    if (queueAction && method === "POST") {
+      let updated;
+      await store.mutate(data => { updated = updateQueue(ensureDoctorQueue(data, doctorId, date), queueAction[1], input, data); });
+      sendJson(response, 200, updated);
+      return true;
+    }
+    if (pathname === "/api/receptionist/walk-ins" && method === "POST") {
+      if (!schedule) { sendError(response, 409, "The doctor has not published a schedule for this date"); return true; }
+      const nextSlot = schedule.slots.find(slot => slot.available);
+      if (!nextSlot || queue.issued >= schedule.capacity) { sendError(response, 409, "The doctor's daily capacity is full"); return true; }
+      const booking = normalizeBooking({ ...input, doctorId, date, time: nextSlot.time, providerType: "doctor", status: "checked-in" }, database);
+      booking.token = `T${String(queue.issued + 1).padStart(3, "0")}`;
+      await store.mutate(data => { data.bookings.unshift(booking); const currentQueue = ensureDoctorQueue(data, doctorId, date); currentQueue.issued += 1; currentQueue.capacity = schedule.capacity; currentQueue.waiting.push({ token: booking.token, name: booking.patientName, reason: booking.reason || "Consultation", appointmentId: booking.id, checkedIn: true, wait: currentQueue.waiting.length * currentQueue.expectedMinutes }); });
+      sendJson(response, 201, { ...booking, status: "checked-in", token: booking.token });
+      return true;
+    }
+    sendError(response, 404, "Receptionist route not found");
     return true;
   }
 
@@ -1568,7 +1788,7 @@ async function routeApi(request, response, url, store, runtime = {}) {
   return false;
 }
 
-async function serveStatic(request, response, url) {
+async function serveStatic(request, response, url, uploadRoot) {
   let pathname;
   try {
     pathname = decodeURIComponent(url.pathname);
@@ -1605,6 +1825,9 @@ async function serveStatic(request, response, url) {
   if (pathname.startsWith("/assets/")) {
     return sendFile(response, path.resolve(projectRoot, "assets"), pathname.slice("/assets/".length));
   }
+  if (pathname.startsWith("/uploads/") && uploadRoot) {
+    return sendFile(response, path.resolve(uploadRoot), pathname.slice("/uploads/".length));
+  }
   if (pathname === "/" || pathname === "/index.html") {
     return sendFile(response, projectRoot, "index.html");
   }
@@ -1639,7 +1862,12 @@ async function sendFile(response, rootDirectory, relativePath) {
 }
 
 export async function createSehatLineServer(options = {}) {
-  const store = options.store || new JsonStore(options.dataFile);
+  const useMongo = !options.store
+    && options.useMongo !== false
+    && Boolean(String(process.env.MONGODB_URI || "").trim())
+    && process.env.SEHATLINE_SKIP_DATABASE !== "true";
+  if (useMongo) await connectDatabase();
+  const store = options.store || (useMongo ? new MongoStore() : new JsonStore(options.dataFile));
   if (!store.data) await store.initialize();
   const adminAuth = new AdminAuthService({
     store,
@@ -1647,12 +1875,15 @@ export async function createSehatLineServer(options = {}) {
     production: options.production ?? process.env.NODE_ENV === "production"
   });
   await adminAuth.initialize();
+  const doctorSessions = new Map();
   const logger = options.logger || console;
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
       const handled = await routeApi(request, response, url, store, {
         adminAuth,
+        doctorSessions,
+        uploadRoot: options.uploadRoot,
         providerFetch: options.providerFetch,
         identitySandboxEnabled: options.identitySandboxEnabled,
         otpSandboxEnabled: options.otpSandboxEnabled
@@ -1664,13 +1895,13 @@ export async function createSehatLineServer(options = {}) {
             response.writeHead(302, { Location: "/admin/change-password" });
             response.end();
           } else {
-            await serveStatic(request, response, url);
+            await serveStatic(request, response, url, options.uploadRoot || process.env.SEHATLINE_UPLOAD_ROOT);
           }
         } catch {
           response.writeHead(302, { Location: "/admin/login" });
           response.end();
         }
-      } else if (!handled) await serveStatic(request, response, url);
+      } else if (!handled) await serveStatic(request, response, url, options.uploadRoot || process.env.SEHATLINE_UPLOAD_ROOT);
     } catch (error) {
       logger.error?.("[SehatLine API]", error);
       const adminError = adminErrorPayload(error);
@@ -1684,7 +1915,6 @@ export async function createSehatLineServer(options = {}) {
 }
 
 export async function startServer(options = {}) {
- //await connectDatabase();
   const { server, store, adminAuth } = await createSehatLineServer(options);
   const requestedPort = options.port ?? DEFAULT_PORT;
   await new Promise((resolve, reject) => {
