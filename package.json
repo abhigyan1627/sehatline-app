@@ -7,8 +7,10 @@
   "scripts": {
     "start": "node backend/src/server.js",
     "dev": "node --watch backend/src/server.js",
+    "admin:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-admin.ps1",
+    "admin:create-super": "node scripts/create-super-admin.mjs",
     "test": "node --test",
-    "check": "node --check patient_app/app.js && node --check doctor_app/app.js && node --check admin_panel/app.js && node --check backend/src/server.js && node --check scripts/build-mobile.mjs",
+    "check": "node --check assets/motion/sehatline-motion.js && node --check assets/pwa/install-prompt.js && node --check patient_app/app.js && node --check doctor_app/app.js && node --check receptionist_app/app.js && node --check admin_panel/app.js && node --check admin_panel/auth.js && node --check backend/src/admin-auth.js && node --check backend/src/server.js && node --check scripts/create-super-admin.mjs && node --check scripts/build-mobile.mjs",
     "mobile:prepare": "node scripts/build-mobile.mjs",
     "android:patient:add": "cd mobile/patient && node ../../node_modules/@capacitor/cli/bin/capacitor add android",
     "android:doctor:add": "cd mobile/doctor && node ../../node_modules/@capacitor/cli/bin/capacitor add android",
@@ -22,7 +24,19 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.4.2",
-    "@capacitor/core": "^8.4.2"
+    "@capacitor/core": "^8.4.2",
+    "bcrypt": "^6.0.0",
+    "cloudinary": "^2.10.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.0",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.8.0",
+    "morgan": "^1.11.0",
+    "multer": "^2.2.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.2"

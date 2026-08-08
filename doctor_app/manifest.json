@@ -1,15 +1,27 @@
 {
+  "id": "/doctor/",
   "name": "SehatLine Doctor",
   "short_name": "Sehat Doctor",
   "description": "Appointments, patients and live clinic queue for SehatLine doctors.",
-  "start_url": "./index.html",
-  "scope": "./",
+  "start_url": "/doctor/#dashboard",
+  "scope": "/doctor/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "orientation": "portrait-primary",
   "background_color": "#f4f8f8",
   "theme_color": "#00a77a",
+  "lang": "en-IN",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "launch_handler": { "client_mode": "navigate-existing" },
   "categories": ["medical", "health", "productivity"],
   "icons": [
+    {
+      "src": "./app-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "./app-icon.png",
       "sizes": "512x512",
@@ -21,6 +33,16 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "./app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
+  ],
+  "shortcuts": [
+    { "name": "Today’s appointments", "short_name": "Appointments", "url": "/doctor/#appointments" },
+    { "name": "Live clinic queue", "short_name": "Queue", "url": "/doctor/#queue" }
   ]
 }

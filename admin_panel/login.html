@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#07111f">
+  <meta name="description" content="Authorized login for the SehatLine Admin Portal">
+  <title>Admin Login | SehatLine</title>
+  <link rel="icon" href="/admin/app-icon.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/motion/sehatline-motion.css?v=2">
+  <link rel="stylesheet" href="/admin/styles.css?v=6">
+  <link rel="stylesheet" href="/assets/footer/site-footer.css?v=3">
+</head>
+<body data-auth-page="login">
+  <section class="admin-auth-shell" aria-labelledby="adminAuthTitle">
+    <div class="auth-visual">
+      <a class="auth-brand" href="/admin/login" aria-label="SehatLine Admin Portal">
+        <span class="brand-mark animated-brand-mark" aria-hidden="true">
+          <img src="/assets/logos/sehatline-mark-frame.png" alt="">
+          <video autoplay muted loop playsinline preload="metadata"><source src="/assets/logos/sehatline-animated.mp4" type="video/mp4"></video>
+        </span>
+        <span><strong>SehatLine</strong><small>ADMIN PORTAL</small></span>
+      </a>
+      <div class="auth-visual-copy">
+        <span class="auth-security-chip">Protected operations workspace</span>
+        <h1>Healthcare administration with verified access.</h1>
+        <p>Only administrators created and approved by the SehatLine Owner can enter this workspace.</p>
+      </div>
+      <div class="auth-trust-list">
+        <span><i>✓</i> Role-based module access</span>
+        <span><i>✓</i> Secure activity auditing</span>
+        <span><i>✓</i> Protected verification actions</span>
+      </div>
+    </div>
+
+    <div class="auth-form-side">
+      <button class="icon-button auth-theme-toggle" id="authThemeToggle" aria-label="Toggle color theme">☾</button>
+      <form class="admin-login-card" id="adminLoginForm" novalidate>
+        <div class="auth-card-heading">
+          <p class="eyebrow">Authorized access only</p>
+          <h2 id="adminAuthTitle">Admin Login</h2>
+          <p>Enter your Owner-approved Admin ID or registered email.</p>
+        </div>
+        <div class="auth-message session-message" id="sessionMessage" hidden></div>
+        <label class="auth-field">
+          <span>Admin ID or email</span>
+          <input id="adminIdentifier" name="identifier" autocomplete="username" placeholder="SL-ADMIN-001" required>
+        </label>
+        <label class="auth-field">
+          <span>Password</span>
+          <span class="password-control">
+            <input id="adminPassword" name="password" type="password" autocomplete="current-password" placeholder="Enter your secure password" required>
+            <button type="button" id="toggleAdminPassword" aria-label="Show password">Show</button>
+          </span>
+        </label>
+        <label class="remember-option"><input type="checkbox" name="remember"><span>Remember me on this trusted device</span></label>
+        <p class="auth-message error" id="adminLoginError" role="alert" hidden></p>
+        <button class="primary-button auth-submit" id="adminLoginButton" type="submit">Log in securely <span>→</span></button>
+        <p class="auth-help">Public signup is disabled. Contact the Owner if you need access.</p>
+      </form>
+    </div>
+  </section>
+  <script src="/assets/motion/sehatline-motion.js?v=2"></script>
+  <script src="/assets/footer/site-footer.js?v=3" defer></script>
+  <script type="module" src="/admin/auth.js?v=1"></script>
+</body>
+</html>

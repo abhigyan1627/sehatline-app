@@ -5,6 +5,10 @@ export function createSeedDatabase() {
       city: "Prayagraj",
       createdAt: "2026-07-25T00:00:00.000Z"
     },
+    admins: [],
+    adminSessions: [],
+    adminAuditLogs: [],
+    adminLoginAttempts: [],
     doctors: [
       {
         id: "d1",

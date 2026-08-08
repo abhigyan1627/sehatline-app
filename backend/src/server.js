@@ -2,8 +2,10 @@ import http from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { JsonStore } from "./store.js";
+import { connectDatabase } from "./config/database.js";
+import { AdminAuthService, adminErrorPayload } from "./admin-auth.js";
 
 const sourceDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(sourceDirectory, "../..");
@@ -766,6 +768,7 @@ async function routeApi(request, response, url, store, runtime = {}) {
   const providerFetch = runtime.providerFetch || fetch;
   const useIdentitySandbox = runtime.identitySandboxEnabled ?? identitySandboxEnabled;
   const useOtpSandbox = runtime.otpSandboxEnabled ?? otpSandboxEnabled;
+  const adminAuth = runtime.adminAuth;
 
   if (method === "OPTIONS") {
     sendJson(response, 204, null);
@@ -788,6 +791,12 @@ async function routeApi(request, response, url, store, runtime = {}) {
     return true;
   }
 
+  if (/^\/api\/doctors\/[^/]+$/.test(pathname) && ["PATCH", "PUT", "DELETE"].includes(method)) {
+    const auth = await adminAuth.authenticate(request);
+    adminAuth.verifyCsrf(request, auth);
+    adminAuth.requirePermission(auth, "doctor_management");
+  }
+
   if (pathname === "/api/auth/otp/config" && method === "GET") {
     if (msg91WidgetConfigured) {
       sendJson(response, 200, {
@@ -806,8 +815,100 @@ async function routeApi(request, response, url, store, runtime = {}) {
     return true;
   }
 
+  if (pathname === "/api/admin/auth/login" && method === "POST") {
+    const result = await adminAuth.login(await readJson(request), adminAuth.clientMeta(request));
+    sendJson(response, 200, { admin: result.admin, csrfToken: result.csrfToken, mustChangePassword: result.admin.mustChangePassword }, { "Set-Cookie": adminAuth.cookie(result.token, result.remember) });
+    return true;
+  }
+  if (pathname === "/api/admin/auth/me" && method === "GET") {
+    const auth = await adminAuth.authenticate(request);
+    sendJson(response, 200, { admin: (await adminAuth.authenticate(request)).admin, csrfToken: auth.session.csrfToken });
+    return true;
+  }
+  if (pathname === "/api/admin/auth/change-password" && method === "POST") {
+    const auth = await adminAuth.authenticate(request);
+    adminAuth.verifyCsrf(request, auth);
+    await adminAuth.changePassword(auth, await readJson(request));
+    sendJson(response, 200, { changed: true }, { "Set-Cookie": adminAuth.clearCookie() });
+    return true;
+  }
+  if (pathname === "/api/admin/auth/logout" && method === "POST") {
+    const auth = await adminAuth.authenticate(request);
+    adminAuth.verifyCsrf(request, auth);
+    await adminAuth.logout(auth);
+    sendJson(response, 200, { loggedOut: true }, { "Set-Cookie": adminAuth.clearCookie() });
+    return true;
+  }
   if (pathname === "/api/admin/overview" && method === "GET") {
+    const auth = await adminAuth.authenticate(request);
+    if (auth.admin.mustChangePassword) throw Object.assign(new Error("Password change required"), { statusCode: 403, code: "PASSWORD_CHANGE_REQUIRED" });
+    adminAuth.requirePermission(auth, "dashboard");
     sendJson(response, 200, calculateOverview(database));
+    return true;
+  }
+  const adminDataRoutes = new Map([
+    ["/api/admin/doctors", ["doctor_management", "doctor_verification"]],
+    ["/api/admin/labs", ["document_approval"]],
+    ["/api/admin/bookings", ["live_queue"]],
+    ["/api/admin/patients", ["patient_management"]],
+    ["/api/admin/notifications", ["complaints_support"]]
+  ]);
+  if (adminDataRoutes.has(pathname) && method === "GET") {
+    const auth = await adminAuth.authenticate(request);
+    if (auth.admin.mustChangePassword) throw Object.assign(new Error("Password change required"), { statusCode: 403, code: "PASSWORD_CHANGE_REQUIRED" });
+    const permissions = adminDataRoutes.get(pathname);
+    if (!permissions.some(permission => auth.admin.role === "super_admin" || auth.admin.permissions?.includes(permission))) {
+      adminAuth.requirePermission(auth, permissions[0]);
+    }
+    const payload = pathname.endsWith("/doctors")
+      ? listDoctors(database, new URLSearchParams("includePending=true"))
+      : pathname.endsWith("/labs")
+        ? database.labs
+        : pathname.endsWith("/bookings")
+          ? database.bookings
+          : pathname.endsWith("/patients")
+            ? database.users
+            : database.notifications;
+    sendJson(response, 200, payload);
+    return true;
+  }
+  if (pathname === "/api/admin/users" && method === "GET") {
+    const auth = await adminAuth.authenticate(request);
+    adminAuth.requirePermission(auth, "admin_management");
+    sendJson(response, 200, adminAuth.listAdmins());
+    return true;
+  }
+  if (pathname === "/api/admin/users" && method === "POST") {
+    const auth = await adminAuth.authenticate(request);
+    adminAuth.verifyCsrf(request, auth);
+    adminAuth.requirePermission(auth, "admin_management");
+    const created = await adminAuth.createAdmin(await readJson(request), { actor: auth.admin, meta: auth.meta });
+    sendJson(response, 201, created);
+    return true;
+  }
+  const adminUserMatch = pathname.match(/^\/api\/admin\/users\/([^/]+)(?:\/(reset-password|status))?$/);
+  if (adminUserMatch) {
+    const auth = await adminAuth.authenticate(request);
+    adminAuth.verifyCsrf(request, auth);
+    adminAuth.requirePermission(auth, "admin_management");
+    const [, targetId, action] = adminUserMatch;
+    if (action === "reset-password" && method === "POST") {
+      sendJson(response, 200, await adminAuth.resetPassword(auth, targetId));
+      return true;
+    }
+    if (action === "status" && method === "PATCH") {
+      sendJson(response, 200, await adminAuth.setStatus(auth, targetId, (await readJson(request)).status));
+      return true;
+    }
+    if (!action && method === "PATCH") {
+      sendJson(response, 200, await adminAuth.updateAdmin(auth, targetId, await readJson(request)));
+      return true;
+    }
+  }
+  if (pathname === "/api/admin/audit-logs" && method === "GET") {
+    const auth = await adminAuth.authenticate(request);
+    adminAuth.requirePermission(auth, "audit_logs");
+    sendJson(response, 200, adminAuth.listAuditLogs(searchParams.get("limit")));
     return true;
   }
 
@@ -872,6 +973,9 @@ async function routeApi(request, response, url, store, runtime = {}) {
   const doctorVerifyMatch = pathname.match(/^\/api\/doctors\/([^/]+)\/verify$/);
   if (doctorVerifyMatch && method === "POST") {
     const input = await readJson(request);
+    const auth = await adminAuth.authenticate(request);
+    adminAuth.verifyCsrf(request, auth);
+    adminAuth.requirePermission(auth, "doctor_verification");
     let updated;
     await store.mutate(data => {
       const doctor = data.doctors.find(item => item.id === decodeURIComponent(doctorVerifyMatch[1]));
@@ -882,7 +986,7 @@ async function routeApi(request, response, url, store, runtime = {}) {
         return;
       }
       const now = new Date().toISOString();
-      const approvedBy = firstText(input.approvedBy, input.verifiedBy, input.reviewer) || null;
+      const approvedBy = auth.admin.adminId;
       const approvalNote = firstText(input.approvalNote, input.verificationNote, input.note);
       doctor.status = "verified";
       doctor.verified = true;
@@ -1476,6 +1580,7 @@ async function serveStatic(request, response, url) {
   const portalRoots = [
     ["/patient", "patient_app"],
     ["/doctor", "doctor_app"],
+    ["/receptionist", "receptionist_app"],
     ["/admin", "admin_panel"]
   ];
   for (const [route, directory] of portalRoots) {
@@ -1485,7 +1590,15 @@ async function serveStatic(request, response, url) {
       return;
     }
     if (pathname.startsWith(`${route}/`)) {
-      const relative = pathname.slice(route.length + 1) || "index.html";
+      const requestedRelative = pathname.slice(route.length + 1);
+      const adminAliases = {
+        login: "login.html",
+        dashboard: "index.html",
+        "change-password": "change-password.html"
+      };
+      const relative = route === "/admin"
+        ? adminAliases[requestedRelative] || requestedRelative || "index.html"
+        : requestedRelative || "index.html";
       return sendFile(response, path.resolve(projectRoot, directory), relative);
     }
   }
@@ -1528,27 +1641,51 @@ async function sendFile(response, rootDirectory, relativePath) {
 export async function createSehatLineServer(options = {}) {
   const store = options.store || new JsonStore(options.dataFile);
   if (!store.data) await store.initialize();
+  const adminAuth = new AdminAuthService({
+    store,
+    jwtSecret: options.adminJwtSecret || process.env.ADMIN_JWT_SECRET || randomBytes(48).toString("hex"),
+    production: options.production ?? process.env.NODE_ENV === "production"
+  });
+  await adminAuth.initialize();
   const logger = options.logger || console;
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
       const handled = await routeApi(request, response, url, store, {
+        adminAuth,
         providerFetch: options.providerFetch,
         identitySandboxEnabled: options.identitySandboxEnabled,
         otpSandboxEnabled: options.otpSandboxEnabled
       });
-      if (!handled) await serveStatic(request, response, url);
+      if (!handled && url.pathname === "/admin/dashboard") {
+        try {
+          const auth = await adminAuth.authenticate(request);
+          if (auth.admin.mustChangePassword) {
+            response.writeHead(302, { Location: "/admin/change-password" });
+            response.end();
+          } else {
+            await serveStatic(request, response, url);
+          }
+        } catch {
+          response.writeHead(302, { Location: "/admin/login" });
+          response.end();
+        }
+      } else if (!handled) await serveStatic(request, response, url);
     } catch (error) {
       logger.error?.("[SehatLine API]", error);
-      if (!response.headersSent) sendError(response, error.statusCode || 500, error.statusCode ? error.message : "Unexpected server error");
+      const adminError = adminErrorPayload(error);
+      if (!response.headersSent && adminError) sendJson(response, adminError.statusCode, adminError.payload);
+      else if (!response.headersSent && error.code) sendJson(response, error.statusCode || 500, { error: { code: error.code, message: error.message } });
+      else if (!response.headersSent) sendError(response, error.statusCode || 500, error.statusCode ? error.message : "Unexpected server error");
       else response.end();
     }
   });
-  return { server, store };
+  return { server, store, adminAuth };
 }
 
 export async function startServer(options = {}) {
-  const { server, store } = await createSehatLineServer(options);
+ //await connectDatabase();
+  const { server, store, adminAuth } = await createSehatLineServer(options);
   const requestedPort = options.port ?? DEFAULT_PORT;
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -1556,7 +1693,7 @@ export async function startServer(options = {}) {
   });
   const address = server.address();
   const port = typeof address === "object" ? address.port : requestedPort;
-  return { server, store, port, url: `http://127.0.0.1:${port}` };
+  return { server, store, adminAuth, port, url: `http://127.0.0.1:${port}` };
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase();

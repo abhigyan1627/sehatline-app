@@ -1,0 +1,17 @@
+{
+  "id": "/receptionist/",
+  "name": "SehatLine Receptionist",
+  "short_name": "SehatLine Desk",
+  "description": "Secure clinic reception, appointments and live token queue workspace.",
+  "start_url": "/receptionist/",
+  "scope": "/receptionist/",
+  "display": "standalone",
+  "background_color": "#f4faf9",
+  "theme_color": "#00b982",
+  "orientation": "any",
+  "icons": [
+    { "src": "/patient/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/patient/icons/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/patient/icons/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,11 +1,19 @@
-const CACHE = "sehatline-admin-v4";
+const CACHE_PREFIX = "sehatline-admin-";
+const CACHE = `${CACHE_PREFIX}v11`;
 const SHELL = [
   "./",
   "./index.html",
+  "./login.html",
+  "./change-password.html",
   "./styles.css",
   "./app.js",
+  "./auth.js",
   "./manifest.json",
   "./app-icon.png",
+  "/assets/motion/sehatline-motion.css",
+  "/assets/motion/sehatline-motion.js",
+  "/assets/footer/site-footer.css",
+  "/assets/footer/site-footer.js",
   "/assets/logos/sehatline-animated.mp4",
   "/assets/logos/sehatline-mark-frame.png"
 ];
@@ -17,7 +25,7 @@ self.addEventListener("install", event => {
 
 self.addEventListener("activate", event => {
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
+    caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE).map(key => caches.delete(key))))
   );
   self.clients.claim();
 });

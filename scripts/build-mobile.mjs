@@ -55,6 +55,11 @@ for (const app of apps) {
     path.join(target, "assets", "logos"),
     { recursive: true }
   );
+  await cp(
+    path.join(root, "assets", "motion"),
+    path.join(target, "assets", "motion"),
+    { recursive: true }
+  );
   const appScript = path.join(target, "app.js");
   const appScriptSource = await readFile(appScript, "utf8");
   await writeFile(

@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="application-name" content="SehatLine Doctor">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#f4f8f8">
   <meta name="description" content="SehatLine Doctor — appointments, patients, clinic queue and practice insights in one calm workspace.">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -10,10 +12,15 @@
   <meta name="apple-mobile-web-app-title" content="SehatLine Doctor">
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./app-icon.png" type="image/png">
+  <link rel="apple-touch-icon" href="./app-icon.png">
   <title>SehatLine Doctor</title>
-  <link rel="stylesheet" href="./styles.css?v=5">
+  <link rel="stylesheet" href="/assets/motion/sehatline-motion.css?v=2">
+  <link rel="stylesheet" href="/assets/pwa/install-prompt.css?v=1">
+  <link rel="stylesheet" href="./styles.css?v=6">
+  <link rel="stylesheet" href="/assets/care/care-background.css?v=1">
+  <link rel="stylesheet" href="/assets/footer/site-footer.css?v=3">
 </head>
-<body>
+<body data-pwa-id="doctor" data-pwa-name="SehatLine Doctor" data-pwa-icon="/doctor/app-icon.png">
   <a class="skip-link" href="#main-content">Skip to main content</a>
 
   <svg class="svg-sprite" aria-hidden="true">
@@ -71,18 +78,18 @@
         </div>
         <div class="auth-preview" aria-hidden="true">
           <div class="preview-top">
-            <span>Today’s flow</span>
-            <span class="live-pill"><i></i> Live</span>
+            <span>Verified doctor workspace</span>
+            <span class="live-pill"><i></i> Secure</span>
           </div>
           <div class="preview-queue">
-            <div class="mini-ring"><b>A12</b><span>Now</span></div>
+            <div class="mini-ring"><b>0</b><span>Issued</span></div>
             <div>
-              <strong>6 patients waiting</strong>
-              <span>On time · 14 min avg.</span>
+              <strong>Daily token capacity</strong>
+              <span>Publish real slots after approved login</span>
             </div>
           </div>
           <div class="preview-slots">
-            <span class="filled"></span><span class="filled"></span><span class="current"></span><span></span><span></span>
+            <span></span><span></span><span></span><span></span><span></span>
           </div>
         </div>
         <div class="trust-row">
@@ -134,14 +141,6 @@
               </button>
             </div>
 
-            <!-- DEMO_UI_START -->
-            <div class="divider"><span>or explore first</span></div>
-            <button class="secondary-button demo-button" id="demo-login" type="button">
-              <span class="demo-icon"><svg><use href="#i-spark"></use></svg></span>
-              <span><b>Enter demo clinic</b><small>No sign-up needed</small></span>
-              <svg><use href="#i-chevron"></use></svg>
-            </button>
-            <!-- DEMO_UI_END -->
             <p class="terms">By continuing, you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a>.</p>
           </div>
 
@@ -164,7 +163,6 @@
               <button class="primary-button auth-submit" type="submit">Verify &amp; open dashboard</button>
             </form>
             <button class="text-button resend-button" id="resend-otp" type="button" disabled>Resend code in <span id="resend-time">30</span>s</button>
-            <!-- DEMO_UI_START --><p class="demo-hint">Prototype tip: use <strong>123456</strong></p><!-- DEMO_UI_END -->
           </div>
         </div>
         <p class="secure-note"><svg><use href="#i-check"></use></svg> Your clinic data stays encrypted and protected.</p>
@@ -214,7 +212,7 @@
 
       <div class="sidebar-doctor">
         <span class="avatar avatar-doctor">AK<i></i></span>
-        <span><b>Dr. Aditi Kapoor</b><small>Dermatologist</small></span>
+        <span><b>Doctor</b><small>Verified doctor</small></span>
         <button class="icon-button" id="sidebar-menu" type="button" aria-label="Doctor menu"><svg><use href="#i-more"></use></svg></button>
       </div>
     </aside>
@@ -223,7 +221,7 @@
       <header class="topbar">
         <div>
           <p class="topbar-kicker" id="topbar-kicker">SATURDAY, 25 JULY</p>
-          <h1 id="page-title">Good evening, Dr. Aditi <span aria-hidden="true">👋</span></h1>
+          <h1 id="page-title">Doctor workspace</h1>
         </div>
         <div class="topbar-actions">
           <span class="clinic-status"><i></i><span>Clinic open</span></span>
@@ -244,8 +242,8 @@
           <div class="dashboard-hero">
             <div class="hero-copy">
               <span class="eyebrow eyebrow-light"><i></i> Your clinic is running smoothly</span>
-              <h2>21 patients. One calm day.</h2>
-              <p>You’re on schedule, with an average wait time of just 14 minutes.</p>
+              <h2>Your real clinic activity, in one place.</h2>
+              <p>Appointments, tokens and queue timing update from verified live bookings.</p>
               <div class="hero-actions">
                 <button class="hero-primary" type="button" data-view="queue"><svg><use href="#i-queue"></use></svg> Open live queue</button>
                 <button class="hero-secondary" type="button" data-view="appointments">View schedule <svg><use href="#i-arrow"></use></svg></button>
@@ -280,9 +278,9 @@
               <div class="queue-now">
                 <div class="queue-ring-small">
                   <svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="50"/><circle class="ring-progress" cx="60" cy="60" r="50"/></svg>
-                  <span><small>NOW</small><b id="dashboard-token">A12</b></span>
+                  <span><small>NOW</small><b id="dashboard-token">—</b></span>
                 </div>
-                <div class="queue-now-copy"><span>With patient</span><b id="dashboard-current-patient">Riya Sharma</b><small><svg><use href="#i-clock"></use></svg> Started 8 min ago</small></div>
+                <div class="queue-now-copy"><span>Current status</span><b id="dashboard-current-patient">Queue closed</b><small><svg><use href="#i-clock"></use></svg> Live after OPD starts</small></div>
               </div>
               <div class="queue-mini-stats">
                 <span><b id="dashboard-waiting">6</b><small>Waiting</small></span>
@@ -345,7 +343,7 @@
               </div>
               <div class="queue-main-ring" id="queue-main-ring">
                 <svg viewBox="0 0 220 220" aria-hidden="true"><circle class="queue-track" cx="110" cy="110" r="92"/><circle class="queue-progress" cx="110" cy="110" r="92"/></svg>
-                <span><small>TOKEN</small><b id="current-token">A12</b><em id="queue-elapsed">08:24</em></span>
+                <span><small>TOKEN</small><b id="current-token">—</b><em id="queue-elapsed">Not started</em></span>
               </div>
               <div class="current-patient" id="current-patient-card"></div>
               <div class="queue-primary-controls">
@@ -362,9 +360,14 @@
               <article class="panel queue-summary-card">
                 <div class="panel-heading"><div><span class="eyebrow">Today</span><h3>Queue overview</h3></div><span class="status-badge">Updated now</span></div>
                 <div class="queue-summary-grid">
-                  <span><b id="queue-waiting-count">6</b><small>Waiting</small></span>
-                  <span><b id="queue-seen-count">11</b><small>Seen</small></span>
-                  <span><b id="queue-avg-time">14m</b><small>Avg. time</small></span>
+                  <span><b id="queue-waiting-count">0</b><small>Waiting</small></span>
+                  <span><b id="queue-seen-count">0</b><small>Seen</small></span>
+                  <span><b id="queue-avg-time">15m</b><small>Avg. time</small></span>
+                </div>
+                <div class="token-capacity-summary" aria-label="Daily token capacity">
+                  <span><b id="queue-issued-count">0</b><small>Issued</small></span>
+                  <span><b id="queue-capacity-count">0</b><small>Daily limit</small></span>
+                  <span><b id="queue-remaining-count">0</b><small>Remaining</small></span>
                 </div>
                 <label class="range-label" for="expected-time"><span>Expected time per patient</span><strong><span id="expected-time-value">15</span> min</strong></label>
                 <input id="expected-time" type="range" min="5" max="30" step="5" value="15">
@@ -441,7 +444,7 @@
             </article>
             <article class="panel rating-panel">
               <div class="panel-heading"><div><span class="eyebrow">Patient experience</span><h3>Ratings</h3></div><button class="text-button" type="button">View reviews</button></div>
-              <div class="rating-overview"><span><b>4.9</b><small><i>★★★★★</i> 128 reviews</small></span><p>“Dr. Aditi explained everything patiently and the queue updates were very helpful.”<small>— Meera S.</small></p></div>
+              <div class="rating-overview"><span><b>—</b><small><i>★★★★★</i> No verified reviews yet</small></span><p>Real patient feedback will appear here after completed consultations.</p></div>
             </article>
           </div>
         </section>
@@ -467,23 +470,23 @@
                   <div><b>Profile photo</b><p>JPG or PNG, at least 400 × 400 px.</p><label class="secondary-button compact-button upload-button"><svg><use href="#i-upload"></use></svg> Change photo<input id="profile-photo" type="file" accept="image/png,image/jpeg"></label></div>
                 </div>
                 <div class="form-grid">
-                  <label><span>Full name</span><input name="name" value="Dr. Aditi Kapoor" autocomplete="name"></label>
-                  <label><span>Specialisation</span><input name="specialisation" value="Dermatologist"></label>
-                  <label><span>Medical registration no.</span><input name="registration" value="DMC/R/18492" readonly><small>Contact support to update verified details.</small></label>
-                  <label><span>Experience</span><div class="input-suffix"><input name="experience" type="number" value="12" min="0"><span>years</span></div></label>
-                  <label class="full-field"><span>Qualifications</span><input name="qualifications" value="MBBS, MD (Dermatology), FIDP"></label>
-                  <label class="full-field"><span>Languages</span><input name="languages" value="English, Hindi, Punjabi"></label>
-                  <label class="full-field"><span>About</span><textarea name="about" rows="4">Consultant dermatologist focused on evidence-led, compassionate skin and hair care for adults and children.</textarea><small><span id="about-count">124</span>/300 characters</small></label>
+                  <label><span>Full name</span><input name="name" value="" autocomplete="name"></label>
+                  <label><span>Specialisation</span><input name="specialisation" value=""></label>
+                  <label><span>Medical registration no.</span><input name="registration" value="" readonly><small>Contact support to update verified details.</small></label>
+                  <label><span>Experience</span><div class="input-suffix"><input name="experience" type="number" value="0" min="0"><span>years</span></div></label>
+                  <label class="full-field"><span>Qualifications</span><input name="qualifications" value=""></label>
+                  <label class="full-field"><span>Languages</span><input name="languages" value=""></label>
+                  <label class="full-field"><span>About</span><textarea name="about" rows="4"></textarea><small><span id="about-count">0</span>/300 characters</small></label>
                 </div>
               </div>
 
               <div class="profile-tab" data-profile-panel="clinic">
                 <div class="form-section-heading"><div><h3>Clinic details</h3><p>Help patients find and contact your practice easily.</p></div></div>
                 <div class="form-grid">
-                  <label class="full-field"><span>Clinic name</span><input name="clinicName" value="Kapoor Skin &amp; Wellness Clinic"></label>
-                  <label><span>Clinic phone</span><input name="clinicPhone" value="+91 98765 42109" inputmode="tel"></label>
-                  <label><span>City</span><input name="city" value="New Delhi"></label>
-                  <label class="full-field"><span>Address</span><textarea name="address" rows="3">18, Green Park Main, Near Gate 2, New Delhi 110016</textarea></label>
+                  <label class="full-field"><span>Clinic name</span><input name="clinicName" value=""></label>
+                  <label><span>Clinic phone</span><input name="clinicPhone" value="" inputmode="tel"></label>
+                  <label><span>City</span><input name="city" value=""></label>
+                  <label class="full-field"><span>Address</span><textarea name="address" rows="3"></textarea></label>
                   <label><span>Consultation mode</span><select name="mode"><option>In-clinic</option><option>Online &amp; in-clinic</option></select></label>
                   <label><span>Average visit duration</span><select name="visitDuration"><option>15 minutes</option><option>10 minutes</option><option>20 minutes</option></select></label>
                 </div>
@@ -546,6 +549,10 @@
 
   <div class="toast-region" id="toast-region" role="status" aria-live="polite" aria-atomic="true"></div>
   <script src="./config.js?v=2"></script>
-  <script src="./app.js?v=5" defer></script>
+  <script src="/assets/care/care-tools.js?v=2" defer></script>
+  <script src="/assets/footer/site-footer.js?v=3" defer></script>
+  <script src="/assets/motion/sehatline-motion.js?v=2" defer></script>
+  <script src="/assets/pwa/install-prompt.js?v=1" defer></script>
+  <script src="./app.js?v=7" defer></script>
 </body>
 </html>

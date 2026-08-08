@@ -1,6 +1,6 @@
 "use strict";
 
-const appConfig = window.SEHATLINE_CONFIG || { mode: "demo", apiBaseUrl: "", allowGuestAccess: true };
+const appConfig = window.SEHATLINE_CONFIG || { mode: "production", apiBaseUrl: "", allowGuestAccess: false };
 const isProduction = appConfig.mode === "production";
 const apiUrl = (path) => `${String(appConfig.apiBaseUrl || "").replace(/\/+$/, "")}${path}`;
 
@@ -283,6 +283,8 @@ const state = {
   authMode: "login",
   authName: "",
   authDateOfBirth: "",
+  authPhotoData: "",
+  authPhotoUrl: "",
   pendingAuthToken: "",
   identityVerificationId: "",
   otpResendAvailableAt: 0,
@@ -448,6 +450,7 @@ async function apiRequest(path, options = {}) {
 }
 
 async function hydrateRemoteData() {
+  window.SehatMotion?.setLoading(document.querySelector("#app"), true);
   const requests = [
     ["/api/doctors", "doctors"],
     ["/api/labs", "labs"],
@@ -482,6 +485,7 @@ async function hydrateRemoteData() {
     })
   );
   render();
+  window.SehatMotion?.setLoading(document.querySelector("#app"), false);
 }
 
 function routeFromHash() {
@@ -564,6 +568,7 @@ function render() {
   };
   app.innerHTML = renderers[state.route]();
   hydrateIcons(app);
+  window.SehatMotion?.enhance(app);
   app.focus({ preventScroll: true });
   if (state.route === "ai") {
     scrollChat();
@@ -583,21 +588,58 @@ function quickAction(iconName, label, route, color, bg) {
     </button>`;
 }
 
+const DOCTOR_CATEGORIES = Object.freeze([
+  { value: "All", label: "All doctors", icon: "stethoscope", terms: [] },
+  { value: "General Medicine", label: "General physician", icon: "activity", terms: ["general physician", "general medicine", "family medicine", "internal medicine"] },
+  { value: "Women’s Health", label: "Gynaecologist", icon: "heart", terms: ["gynaec", "gynec", "obstetric", "women"] },
+  { value: "Skin & Hair", label: "Skin & hair", icon: "sparkles", terms: ["dermat", "skin", "hair"] },
+  { value: "Child Care", label: "Paediatrician", icon: "users", terms: ["paediatric", "pediatric", "child"] },
+  { value: "Heart Care", label: "Cardiologist", icon: "activity", terms: ["cardio", "heart"] },
+  { value: "Bones & Joints", label: "Orthopaedic", icon: "stethoscope", terms: ["ortho", "bone", "joint"] },
+  { value: "ENT", label: "ENT", icon: "user", terms: ["ent", "ear nose", "otolaryng"] },
+  { value: "Dental Care", label: "Dentist", icon: "shield", terms: ["dent", "oral"] },
+  { value: "Mental Health", label: "Mental health", icon: "heart", terms: ["psychi", "psycholog", "mental"] },
+  { value: "Eye Care", label: "Eye specialist", icon: "user", terms: ["ophthalm", "eye", "vision"] },
+  { value: "Neurology", label: "Neurologist", icon: "activity", terms: ["neuro", "brain", "nerve"] },
+  { value: "Diabetes & Hormones", label: "Diabetes care", icon: "activity", terms: ["diabet", "endocrin", "hormone"] },
+  { value: "Stomach & Digestion", label: "Gastroenterologist", icon: "stethoscope", terms: ["gastro", "digest", "stomach", "liver"] },
+  { value: "Kidney & Urinary", label: "Kidney & urinary", icon: "stethoscope", terms: ["nephro", "urolo", "kidney", "urinary"] },
+  { value: "Lung Care", label: "Pulmonologist", icon: "activity", terms: ["pulmon", "respirat", "lung", "chest"] },
+  { value: "Cancer Care", label: "Oncologist", icon: "shield", terms: ["oncolo", "cancer"] },
+  { value: "Physiotherapy", label: "Physiotherapist", icon: "users", terms: ["physio", "rehabilitation"] }
+]);
+
+function doctorMatchesSpecialty(doctor, selected = state.doctorSpecialty) {
+  if (selected === "All") return true;
+  const specialty = String(doctor.specialty || "").toLowerCase();
+  const category = DOCTOR_CATEGORIES.find((item) => item.value === selected);
+  if (category) return category.terms.some((term) => specialty.includes(term));
+  return specialty === String(selected).toLowerCase();
+}
+
+function doctorCategoryChips() {
+  return DOCTOR_CATEGORIES.map((category) => `
+    <button class="specialty-chip ${state.doctorSpecialty === category.value ? "active" : ""}" data-filter="specialty" data-value="${escapeHtml(category.value)}" aria-pressed="${state.doctorSpecialty === category.value}">
+      <span>${svg(category.icon)}</span>${escapeHtml(category.label)}
+    </button>`).join("");
+}
+
 function renderHome() {
   const upcoming = state.appointments.find((appointment) => appointment.upcoming);
   const doctor = upcoming ? doctorById(upcoming.doctorId) : state.doctors[0];
+  const homeDoctors = filteredDoctors().slice(0, 5);
   return `
     <div class="page home-page">
       <section class="home-hero">
         <div class="hero-content">
           <p class="hello">Good evening, Abhigyan 👋</p>
           <h1 class="hero-title">Your health, made <span>simpler.</span></h1>
-          <p class="hero-copy">Trusted doctors, transparent prices and smarter choices—all in one place.</p>
-          <form class="ai-search" id="homeAiForm">
-            <span class="search-icon">${svg("sparkles")}</span>
-            <input name="query" autocomplete="off" aria-label="Ask Sehat AI" placeholder="Ask: female skin doctor under ₹500…" />
-            <button class="icon-button" aria-label="Ask AI">${svg("arrow")}</button>
-          </form>
+          <p class="hero-copy">Discover verified doctors, choose a suitable time and book your visit with confidence.</p>
+          <div class="hero-actions" aria-label="Healthcare booking actions">
+            <button class="btn btn-primary" data-route="doctors">${svg("stethoscope")} Find a doctor</button>
+            <button class="btn btn-secondary" data-route="appointments">${svg("calendar")} My appointments</button>
+          </div>
+          <p class="hero-trust">${svg("shield")} Only admin-verified doctors are shown</p>
         </div>
         <img class="oxygen-tree oxygen-tree-patient" src="/assets/brand-motion/oxygen-tree.svg" alt="" aria-hidden="true" />
       </section>
@@ -608,10 +650,8 @@ function renderHome() {
         </div>
         <div class="quick-grid">
           ${quickAction("stethoscope", "Find Doctor", "doctors", "var(--emerald-deep)", "rgba(0,185,130,.11)")}
-          ${quickAction("compare", "Compare Doctors", "doctors", "var(--blue)", "rgba(37,99,235,.1)")}
-          ${quickAction("flask", "Compare Labs", "labs", "var(--cyan)", "rgba(0,191,232,.11)")}
-          ${quickAction("sparkles", "Ask Sehat AI", "ai", "var(--violet)", "rgba(124,58,237,.1)")}
           ${quickAction("calendar-plus", "Book Visit", "doctors", "var(--orange)", "rgba(247,144,9,.11)")}
+          ${quickAction("activity", "Live Queue", "appointments", "var(--blue)", "rgba(37,99,235,.1)")}
           ${quickAction("file", "My Reports", "reports", "var(--red)", "rgba(239,71,111,.1)")}
         </div>
       </section>
@@ -664,22 +704,34 @@ function renderHome() {
 
       <section class="section">
         <div class="section-head">
-          <h2 class="section-title">Top doctors near you</h2>
+          <div>
+            <p class="section-kicker">CHOOSE YOUR CARE</p>
+            <h2 class="section-title">Verified doctors</h2>
+          </div>
           <button class="section-link" data-route="doctors">View all</button>
         </div>
-        ${state.doctors.length
-          ? `<div class="horizontal-scroll">${state.doctors.slice(0, 5).map((item) => doctorCard(item, true)).join("")}</div>`
-          : emptyState("stethoscope", "No doctors available yet", "Verified doctors for this location will appear here soon.", "", "")}
+        <div class="specialty-scroll" aria-label="Doctor categories">${doctorCategoryChips()}</div>
+        ${homeDoctors.length
+          ? `<div class="horizontal-scroll">${homeDoctors.map((item) => doctorCard(item, true)).join("")}</div>`
+          : state.doctors.length
+            ? emptyState("search", "No doctors in this category yet", "Choose another category to see available verified doctors.", "Show all doctors", "reset-doctor-filters")
+            : emptyState("stethoscope", "No doctors available yet", "Verified doctors for this location will appear here soon.", "", "")}
       </section>
 
-      <section class="section">
+      <section class="section coming-section" aria-labelledby="comingSoonTitle">
         <div class="section-head">
-          <h2 class="section-title">Nearby diagnostic labs</h2>
-          <button class="section-link" data-route="labs">Compare prices</button>
+          <div>
+            <p class="section-kicker">EXPANDING SEHATLINE</p>
+            <h2 class="section-title" id="comingSoonTitle">Coming soon</h2>
+          </div>
+          <span class="coming-note">We are building these services carefully</span>
         </div>
-        ${state.labs.length
-          ? `<div class="horizontal-scroll">${state.labs.map((item) => labCard(item, true)).join("")}</div>`
-          : emptyState("flask", "No labs available yet", "Verified labs for this location will appear here soon.", "", "")}
+        <div class="coming-grid">
+          <article class="coming-card"><span class="coming-icon mint">${svg("flask")}</span><span class="coming-badge">Coming soon</span><h3>PathLabs</h3><p>Verified diagnostic centres and convenient home sample collection.</p></article>
+          <article class="coming-card"><span class="coming-icon blue">${svg("file")}</span><span class="coming-badge">Coming soon</span><h3>Medicine delivery</h3><p>Prescription medicines delivered through verified pharmacy partners.</p></article>
+          <article class="coming-card"><span class="coming-icon orange">${svg("users")}</span><span class="coming-badge">Coming soon</span><h3>Free medical camps</h3><p>Community check-ups and preventive care camps for underserved areas.</p></article>
+          <article class="coming-card"><span class="coming-icon rose">${svg("heart")}</span><span class="coming-badge">Coming soon</span><h3>Critical care support</h3><p>Admin-verified fundraising for genuine critical medical situations.</p></article>
+        </div>
       </section>
 
       <section class="section home-grid">
@@ -699,7 +751,6 @@ function renderHome() {
 
 function doctorCard(doctor) {
   const isSaved = state.favorites.has(doctor.id);
-  const selected = state.compareDoctors.has(doctor.id);
   return `
     <article class="doctor-card" data-doctor-id="${doctor.id}">
       <button class="save-button ${isSaved ? "saved" : ""}" data-action="save-doctor" data-id="${doctor.id}" aria-label="${isSaved ? "Remove from" : "Add to"} saved doctors">${svg("heart")}</button>
@@ -718,7 +769,6 @@ function doctorCard(doctor) {
       </div>
       <p class="fine">${svg("map-pin")} ${doctor.distance} km · Next: <strong class="text-emerald">${escapeHtml(doctor.nextSlot)}</strong></p>
       <div class="doctor-actions">
-        <button class="compare-check ${selected ? "selected" : ""}" data-action="compare-doctor" data-id="${doctor.id}" aria-label="${selected ? "Remove from" : "Add to"} comparison">${selected ? svg("check") : svg("compare")}</button>
         <button class="btn btn-secondary" data-action="doctor-profile" data-id="${doctor.id}">Profile</button>
         <button class="btn btn-primary" data-action="book-doctor" data-id="${doctor.id}">Book</button>
       </div>
@@ -754,14 +804,13 @@ function labCard(lab) {
 }
 
 function doctorFilters() {
-  const specialties = ["All", ...new Set(state.doctors.map((doctor) => doctor.specialty))];
   return `
     <aside class="filter-panel card" aria-label="Doctor filters">
       <h2 class="filter-title">Filters <button class="section-link" data-action="reset-doctor-filters">Reset</button></h2>
       <div class="filter-group">
         <span class="filter-label">SPECIALIZATION</span>
         <div class="filter-options">
-          ${specialties.map((specialty) => `<button class="filter-chip ${state.doctorSpecialty === specialty ? "active" : ""}" data-filter="specialty" data-value="${escapeHtml(specialty)}">${escapeHtml(specialty)}</button>`).join("")}
+          ${DOCTOR_CATEGORIES.map((category) => `<button class="filter-chip ${state.doctorSpecialty === category.value ? "active" : ""}" data-filter="specialty" data-value="${escapeHtml(category.value)}">${escapeHtml(category.label)}</button>`).join("")}
         </div>
       </div>
       <div class="filter-group">
@@ -790,7 +839,7 @@ function filteredDoctors() {
   const result = state.doctors.filter((doctor) => {
     const matchesQuery = !query || `${doctor.name} ${doctor.specialty} ${doctor.clinic}`.toLowerCase().includes(query);
     return matchesQuery
-      && (state.doctorSpecialty === "All" || doctor.specialty === state.doctorSpecialty)
+      && doctorMatchesSpecialty(doctor)
       && doctor.fee <= state.doctorMaxFee
       && (state.doctorGender === "All" || doctor.gender === state.doctorGender);
   });
@@ -820,7 +869,7 @@ function renderDoctors() {
       <div class="page-head">
         <div>
           <h1 class="page-title">Find your doctor</h1>
-          <p class="page-subtitle">Compare verified specialists by fees, experience, distance and earliest availability.</p>
+          <p class="page-subtitle">Explore admin-verified specialists by category, experience, location and availability.</p>
         </div>
         <button class="btn btn-ai" data-route="ai">${svg("sparkles")} Ask AI</button>
       </div>
@@ -847,7 +896,6 @@ function renderDoctors() {
           </div>
         </section>
       </div>
-      ${compareBar("doctor")}
     </div>`;
 }
 
@@ -1370,6 +1418,7 @@ function openModal(content, wide = false) {
   const root = document.querySelector("#modalRoot");
   root.replaceChildren(modal);
   hydrateIcons(root);
+  window.SehatMotion?.openModal(root);
   document.body.style.overflow = "hidden";
   setTimeout(() => root.querySelector(".modal-close")?.focus(), 0);
 }
@@ -1379,10 +1428,14 @@ function closeModal() {
   if (root.dataset.authRequired === "true" && root.dataset.authDismissible !== "true" && !state.authToken) return;
   closeQueueTimer();
   closeOtpTimer();
-  delete root.dataset.authRequired;
-  delete root.dataset.authDismissible;
-  root.replaceChildren();
-  document.body.style.overflow = "";
+  const cleanup = () => {
+    delete root.dataset.authRequired;
+    delete root.dataset.authDismissible;
+    root.replaceChildren();
+    document.body.style.overflow = "";
+  };
+  if (window.SehatMotion) window.SehatMotion.closeModal(root, cleanup);
+  else cleanup();
 }
 
 function closeQueueTimer() {
@@ -1518,13 +1571,29 @@ function appointmentDateParts(iso) {
   };
 }
 
-function openBooking(doctorId, step = 1) {
+function formatSlotTime(time) {
+  const [hours, minutes] = String(time || "").split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return String(time || "");
+  const hour = ((hours + 11) % 12) + 1;
+  return `${hour}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
+}
+
+async function openBooking(doctorId, step = 1) {
   const doctor = doctorById(doctorId);
   if (!doctor) return;
   state.bookingDraft.doctorId = doctorId;
   const dateOptions = bookingDateOptions(state.bookingDraft.rescheduleId ? state.bookingDraft.dateISO : undefined);
   state.bookingDraft.dateISO ||= dateOptions[0].iso;
-  state.bookingDraft.time ||= doctor.nextSlot;
+  let liveSlots = [];
+  if (step === 1) {
+    try {
+      const schedule = await apiRequest(`/api/doctors/${encodeURIComponent(doctorId)}/slots?date=${encodeURIComponent(state.bookingDraft.dateISO)}`, { timeoutMs: 5000 });
+      liveSlots = Array.isArray(schedule?.slots) ? schedule.slots.filter(slot => slot.available !== false) : [];
+    } catch {
+      liveSlots = [];
+    }
+    if (!liveSlots.some(slot => slot.time === state.bookingDraft.time)) state.bookingDraft.time = liveSlots[0]?.time || "";
+  }
   state.bookingDraft.type ||= "Clinic visit";
   state.bookingDraft.patient ||= "Abhigyan Maurya";
   const steps = `<div class="stepper"><span class="active"></span><span class="${step >= 2 ? "active" : ""}"></span><span class="${step >= 3 ? "active" : ""}"></span></div>`;
@@ -1540,9 +1609,9 @@ function openBooking(doctorId, step = 1) {
         ${dateOptions.map((date) => `<button class="date-chip ${state.bookingDraft.dateISO === date.iso ? "active" : ""}" data-booking-choice="dateISO" data-value="${date.iso}"><span>${date.weekday}</span><strong>${date.day}</strong><span>${date.month}</span></button>`).join("")}
       </div></div>
       <div class="field"><label>AVAILABLE TIME</label><div class="choice-row">
-        ${[doctor.nextSlot, "6:00 PM", "6:30 PM", "7:15 PM"].map((time) => `<button class="time-chip ${state.bookingDraft.time === time ? "active" : ""}" data-booking-choice="time" data-value="${time}">${time}</button>`).join("")}
+        ${liveSlots.length ? liveSlots.map(slot => `<button class="time-chip ${state.bookingDraft.time === slot.time ? "active" : ""}" data-booking-choice="time" data-value="${slot.time}">${formatSlotTime(slot.time)}</button>`).join("") : `<div class="slot-empty">No live slots published for this date. Choose another date or ask the clinic.</div>`}
       </div></div>
-      <button class="btn btn-primary btn-block" data-booking-next="2">Continue ${svg("arrow")}</button>`;
+      <button class="btn btn-primary btn-block" data-booking-next="2" ${liveSlots.length ? "" : "disabled"}>Continue ${svg("arrow")}</button>`;
   } else if (step === 2) {
     content = `
       <h2 class="modal-title" id="modalTitle">Patient details</h2>
@@ -1561,7 +1630,7 @@ function openBooking(doctorId, step = 1) {
         <div class="booking-summary-head">${doctorAvatar(doctor)}<div><h3>${escapeHtml(doctor.name)}</h3><p class="fine">${escapeHtml(doctor.specialty)} · ${escapeHtml(doctor.clinic)}</p></div></div>
         <div class="appointment-time">
           <span class="info-pill">${svg("calendar")} ${escapeHtml(bookingDateLabel(state.bookingDraft.dateISO))}</span>
-          <span class="info-pill">${svg("clock")} ${escapeHtml(state.bookingDraft.time)}</span>
+          <span class="info-pill">${svg("clock")} ${escapeHtml(formatSlotTime(state.bookingDraft.time))}</span>
           <span class="info-pill">${svg("map-pin")} ${escapeHtml(state.bookingDraft.type)}</span>
         </div>
         <div class="booking-total"><span>Pay ${state.bookingDraft.type === "Clinic visit" ? "at clinic" : "online"}</span><strong>${formatPrice(doctor.fee)}</strong></div>
@@ -1592,27 +1661,30 @@ async function confirmBooking() {
     status: "Confirmed",
     upcoming: true
   };
+  let savedAppointment = newAppointment;
   try {
-    await apiRequest(rescheduleId ? `/api/appointments/${encodeURIComponent(rescheduleId)}` : "/api/appointments", {
+    const response = await apiRequest(rescheduleId ? `/api/appointments/${encodeURIComponent(rescheduleId)}` : "/api/appointments", {
       method: rescheduleId ? "PATCH" : "POST",
       body: JSON.stringify(newAppointment)
     });
-  } catch {
-    // The optimistic appointment remains available in demo/offline mode.
+    savedAppointment = { ...newAppointment, ...(response || {}) };
+  } catch (error) {
+    toast(error.message || "This token could not be booked. Please choose another slot.", "error");
+    return;
   }
   if (rescheduleId) {
     state.appointments = state.appointments.map((appointment) =>
-      appointment.id === rescheduleId ? { ...appointment, ...newAppointment } : appointment
+      appointment.id === rescheduleId ? { ...appointment, ...savedAppointment } : appointment
     );
   } else {
-    state.appointments.unshift(newAppointment);
+    state.appointments.unshift(savedAppointment);
   }
   openModal(`
     <div class="success-state">
       <div class="success-check">${svg("check")}</div>
       <h2 id="modalTitle">${rescheduleId ? "Appointment rescheduled!" : "Appointment confirmed!"}</h2>
-      <p>Your visit with ${escapeHtml(doctor.name)} is ${rescheduleId ? "now scheduled" : "booked"} for ${escapeHtml(bookingDateLabel(state.bookingDraft.dateISO))} at ${escapeHtml(state.bookingDraft.time)}.</p>
-      <div class="booking-summary"><span class="fine">BOOKING ID</span><h3>${rescheduleId ? escapeHtml(rescheduleId.toUpperCase()) : `SL-${String(Date.now()).slice(-6)}`}</h3></div>
+      <p>Your visit with ${escapeHtml(doctor.name)} is ${rescheduleId ? "now scheduled" : "booked"} for ${escapeHtml(bookingDateLabel(state.bookingDraft.dateISO))} at ${escapeHtml(formatSlotTime(state.bookingDraft.time))}.</p>
+      <div class="booking-summary"><span class="fine">${savedAppointment.token ? "LIVE TOKEN" : "BOOKING ID"}</span><h3>${escapeHtml(savedAppointment.token || savedAppointment.id?.toUpperCase() || rescheduleId?.toUpperCase() || "Confirmed")}</h3>${savedAppointment.token ? `<p class="fine">Issued from the doctor's real daily capacity.</p>` : ""}</div>
       <button class="btn btn-primary btn-block" data-action="view-appointments">View my appointments</button>
     </div>`);
   state.bookingDraft = {};
@@ -1686,38 +1758,59 @@ function openQueue(id) {
   const doctor = doctorById(appointment.doctorId) || state.doctors[0];
   const initialWait = Math.max(0, Number(appointment.wait) || 18);
   const initialAhead = Math.max(0, Number(appointment.ahead) || 0);
-  const queueOpenedAt = Date.now();
   openModal(`
     <div class="queue-live">
       <span class="status-pill">● LIVE · OPD running</span>
       <h2 class="modal-title" id="modalTitle" style="margin-top:12px">${escapeHtml(doctor.name)}</h2>
       <p class="modal-subtitle">${escapeHtml(doctor.clinic)}</p>
       <div class="queue-ring" style="--progress:72%">
-        <div class="queue-number"><strong>${escapeHtml(appointment.token || "A-18")}</strong><small>Your token</small></div>
+        <div class="queue-number"><strong>${escapeHtml(appointment.token || "—")}</strong><small>Your token</small></div>
       </div>
       <div class="queue-meta">
         <div><strong id="patientsAhead">${initialAhead}</strong><small>Patients ahead</small></div>
         <div><strong id="queueWait">${initialWait} min</strong><small>Estimated wait</small></div>
-        <div><strong>${escapeHtml(appointment.currentToken || "A-14")}</strong><small>Now serving</small></div>
+        <div><strong id="queueCurrentToken">${escapeHtml(appointment.currentToken || "—")}</strong><small>Now serving</small></div>
       </div>
       <div class="timeline">
         <div class="timeline-row"><span class="timeline-dot"></span><div><strong>You checked in</strong><small>5:07 PM</small></div></div>
-        <div class="timeline-row"><span class="timeline-dot"></span><div><strong>Clinic queue is moving normally</strong><small>Updated just now</small></div></div>
+        <div class="timeline-row"><span class="timeline-dot"></span><div><strong id="queueAiMessage">Connecting to live AI estimate…</strong><small id="queueUpdatedAt">Updating now</small></div></div>
         <div class="timeline-row pending"><span class="timeline-dot"></span><div><strong>Get ready when 1 patient is ahead</strong><small>We’ll send a notification</small></div></div>
       </div>
       <button class="btn btn-secondary btn-block" data-action="directions">${svg("navigation")} Get clinic directions</button>
     </div>`);
-  const updateQueueEstimate = () => {
-    const elapsedMinutes = Math.floor((Date.now() - queueOpenedAt) / 60000);
-    const estimatedWait = Math.max(0, initialWait - elapsedMinutes);
-    const estimatedAhead = Math.max(0, initialAhead - Math.floor(elapsedMinutes / 6));
+  const updateQueueEstimate = async () => {
+    try {
+      const liveQueue = await apiRequest(`/api/queues/${encodeURIComponent(appointment.doctorId)}?date=${encodeURIComponent(appointment.date || "")}&token=${encodeURIComponent(appointment.token || "")}`, { timeoutMs: 6000 });
+      const estimatedWait = liveQueue.live?.etaMinutes;
+      const estimatedAhead = liveQueue.live?.ahead;
+      appointment.wait = estimatedWait ?? appointment.wait;
+      appointment.ahead = estimatedAhead ?? appointment.ahead;
+      appointment.currentToken = liveQueue.current?.token || liveQueue.currentToken || appointment.currentToken;
+      const currentNode = document.querySelector("#queueCurrentToken");
+      const messageNode = document.querySelector("#queueAiMessage");
+      const updatedNode = document.querySelector("#queueUpdatedAt");
+      if (currentNode) currentNode.textContent = appointment.currentToken || "—";
+      if (messageNode) messageNode.textContent = liveQueue.live?.message || "Live queue connected";
+      if (updatedNode) updatedNode.textContent = `Live · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
     const waitNode = document.querySelector("#queueWait");
     const aheadNode = document.querySelector("#patientsAhead");
-    if (waitNode) waitNode.textContent = estimatedWait ? `${estimatedWait} min` : "Any moment";
-    if (aheadNode) aheadNode.textContent = String(estimatedAhead);
+      const nextWait = estimatedWait > 0 ? `${estimatedWait} min` : estimatedWait === 0 ? "Any moment" : "Checking";
+      const nextAhead = estimatedAhead == null ? "—" : String(estimatedAhead);
+    if (waitNode && waitNode.textContent !== nextWait) {
+      waitNode.textContent = nextWait;
+      window.SehatMotion?.highlight(waitNode);
+    }
+    if (aheadNode && aheadNode.textContent !== nextAhead) {
+      aheadNode.textContent = nextAhead;
+      window.SehatMotion?.highlight(aheadNode);
+    }
+    } catch {
+      const messageNode = document.querySelector("#queueAiMessage");
+      if (messageNode) messageNode.textContent = "Reconnecting to the clinic queue…";
+    }
   };
   updateQueueEstimate();
-  state.queueTimer = setInterval(updateQueueEstimate, 1000);
+  state.queueTimer = setInterval(updateQueueEstimate, 10000);
 }
 
 function openNotifications() {
@@ -1754,7 +1847,7 @@ function openMobileDoctorFilters() {
     <h2 class="modal-title" id="modalTitle">Filter doctors</h2>
     <p class="modal-subtitle">Personalise your results.</p>
     <div class="filter-group"><span class="filter-label">SPECIALIZATION</span><div class="filter-options">
-      ${["All", ...new Set(state.doctors.map((doctor) => doctor.specialty))].map((specialty) => `<button class="filter-chip ${state.doctorSpecialty === specialty ? "active" : ""}" data-modal-filter="specialty" data-value="${escapeHtml(specialty)}">${escapeHtml(specialty)}</button>`).join("")}
+      ${DOCTOR_CATEGORIES.map((category) => `<button class="filter-chip ${state.doctorSpecialty === category.value ? "active" : ""}" data-modal-filter="specialty" data-value="${escapeHtml(category.value)}">${escapeHtml(category.label)}</button>`).join("")}
     </div></div>
     <div class="filter-group"><div class="range-line"><span>Maximum fee</span><strong>${formatPrice(state.doctorMaxFee)}</strong></div><input type="range" min="300" max="1000" step="50" value="${state.doctorMaxFee}" data-modal-filter="fee" /></div>
     <div class="filter-group"><span class="filter-label">GENDER</span><div class="filter-options">${["All", "Female", "Male"].map((gender) => `<button class="filter-chip ${state.doctorGender === gender ? "active" : ""}" data-modal-filter="gender" data-value="${gender}">${gender}</button>`).join("")}</div></div>
@@ -2099,6 +2192,11 @@ function openSignupProfileStep() {
       <p class="modal-subtitle">Use the same name and date of birth that appear in your identity document.</p>
       <div class="field"><label for="authName">FULL NAME</label><input id="authName" autocomplete="name" placeholder="Your full name" value="${escapeHtml(state.authName)}"></div>
       <div class="field"><label for="authDob">DATE OF BIRTH</label><input id="authDob" type="date" autocomplete="bday" value="${escapeHtml(state.authDateOfBirth)}"></div>
+      <label class="profile-photo-field" for="authPhoto">
+        <span class="profile-photo-preview" id="authPhotoPreview" style="${state.authPhotoData ? `background-image:url('${state.authPhotoData}')` : ""}">${state.authPhotoData ? "" : svg("camera")}</span>
+        <span><strong>Profile photo</strong><small>Required for a trusted patient account · JPG, PNG or WebP</small></span>
+        <input id="authPhoto" type="file" accept="image/jpeg,image/png,image/webp" capture="user">
+      </label>
       <button class="btn btn-primary btn-block auth-primary" data-action="continue-identity">Continue to identity check</button>
     </div>`);
   lockAuthModal();
@@ -2260,11 +2358,27 @@ document.addEventListener("click", (event) => {
 
   const locationTarget = event.target.closest("[data-location]");
   if (locationTarget) {
-    state.location = locationTarget.dataset.location === "Use current location" ? "Current location, Prayagraj" : locationTarget.dataset.location;
-    localStorage.setItem("sehatline-location", state.location);
-    closeModal();
-    renderHeader();
-    toast(`Location changed to ${state.location}`, "map-pin");
+    if (locationTarget.dataset.location === "Use current location") {
+      locationTarget.disabled = true;
+      locationTarget.querySelector("strong").textContent = "Detecting your location…";
+      window.SehatCare.requestLocation().then(result => {
+        state.location = result.locality && result.city ? `${result.locality}, ${result.city}` : result.displayName;
+        localStorage.setItem("sehatline-location", state.location);
+        closeModal();
+        renderHeader();
+        toast(`Live location set to ${state.location}`, "map-pin");
+      }).catch(error => {
+        locationTarget.disabled = false;
+        locationTarget.querySelector("strong").textContent = "Use current location";
+        toast(error.message || "Location could not be detected", "alert");
+      });
+    } else {
+      state.location = locationTarget.dataset.location;
+      localStorage.setItem("sehatline-location", state.location);
+      closeModal();
+      renderHeader();
+      toast(`Location changed to ${state.location}`, "map-pin");
+    }
     return;
   }
 
@@ -2478,6 +2592,7 @@ document.addEventListener("click", (event) => {
     "verify-otp": async () => {
       const otp = document.querySelector("#authOtp")?.value.trim() || "";
       if (!/^\d{6}$/.test(otp)) {
+        window.SehatMotion?.shake(document.querySelector("#authOtp"));
         toast("Enter the complete 6-digit OTP", "alert");
         return;
       }
@@ -2497,10 +2612,12 @@ document.addEventListener("click", (event) => {
           verifyButton.classList.remove("is-loading");
           verifyButton.innerHTML = verifyButtonContent;
         }
+        window.SehatMotion?.shake(document.querySelector("#authOtp"));
         toast(error.message || "That OTP is invalid or expired", "alert");
         return;
       }
       if (!payload?.verified && !payload?.token) {
+        window.SehatMotion?.shake(document.querySelector("#authOtp"));
         toast("That OTP is invalid or expired", "alert");
         return;
       }
@@ -2511,12 +2628,13 @@ document.addEventListener("click", (event) => {
       }
       state.authToken = payload.token || "";
       if (state.authToken) localStorage.setItem("sehatline-auth-token", state.authToken);
+      await hydrateRemoteData();
       const root = document.querySelector("#modalRoot");
       delete root.dataset.authRequired;
       closeModal();
       toast("Signed in securely");
     },
-    "continue-identity": () => {
+    "continue-identity": async () => {
       const name = document.querySelector("#authName")?.value.trim() || "";
       const dateOfBirth = document.querySelector("#authDob")?.value || "";
       if (name.length < 3) {
@@ -2527,9 +2645,24 @@ document.addEventListener("click", (event) => {
         toast("Select your date of birth", "alert");
         return;
       }
+      const photoFile = document.querySelector("#authPhoto")?.files?.[0];
+      if (!state.authPhotoData && !photoFile) {
+        toast("Add your profile photo", "alert");
+        return;
+      }
       state.authName = name;
       state.authDateOfBirth = dateOfBirth;
-      openIdentityStep();
+      const button = document.querySelector('[data-action="continue-identity"]');
+      if (button) button.disabled = true;
+      try {
+        if (photoFile) state.authPhotoData = await window.SehatCare.preparePhoto(photoFile);
+        const uploaded = await window.SehatCare.uploadPhoto(state.authPhotoData, "patient");
+        state.authPhotoUrl = uploaded.url;
+        openIdentityStep();
+      } catch (error) {
+        if (button) button.disabled = false;
+        toast(error.message || "Photo could not be uploaded", "alert");
+      }
     },
     "start-identity": async () => {
       if (!document.querySelector("#identityConsent")?.checked) {
@@ -2543,7 +2676,7 @@ document.addEventListener("click", (event) => {
             phone: `+91${phoneDigitsForInput(state.authPhone)}`,
             consent: true,
             method: "aadhaar-face",
-            profile: { name: state.authName, dateOfBirth: state.authDateOfBirth }
+            profile: { name: state.authName, dateOfBirth: state.authDateOfBirth, photoUrl: state.authPhotoUrl }
           })
         });
         state.identityVerificationId = payload.verificationId;
@@ -2565,6 +2698,7 @@ document.addEventListener("click", (event) => {
         });
         state.authToken = payload.token || state.pendingAuthToken;
         if (state.authToken) localStorage.setItem("sehatline-auth-token", state.authToken);
+        await hydrateRemoteData();
         state.identityVerificationId = "";
         openIdentitySuccess(payload);
       } catch (error) {
@@ -2606,6 +2740,18 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target.matches("#authPhoto")) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    window.SehatCare.preparePhoto(file).then(dataUrl => {
+      state.authPhotoData = dataUrl;
+      const preview = document.querySelector("#authPhotoPreview");
+      if (preview) {
+        preview.innerHTML = "";
+        preview.style.backgroundImage = `url('${dataUrl}')`;
+      }
+    }).catch(error => toast(error.message, "alert"));
+  }
   if (event.target.matches("[data-doctor-sort]")) {
     state.doctorSort = event.target.value;
     render();
@@ -2618,11 +2764,6 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("submit", (event) => {
   event.preventDefault();
-  if (event.target.id === "homeAiForm") {
-    const query = new FormData(event.target).get("query")?.trim();
-    state.pendingAi = query || "Help me find a trusted doctor near me";
-    navigate("ai");
-  }
   if (event.target.id === "aiForm") {
     const query = new FormData(event.target).get("query")?.trim();
     if (query) handleAiQuery(query);

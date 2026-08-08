@@ -1,0 +1,180 @@
+:root {
+  --motion-duration-fast: 140ms;
+  --motion-duration-base: 240ms;
+  --motion-duration-slow: 420ms;
+  --motion-ease-standard: cubic-bezier(.2, .8, .2, 1);
+  --motion-ease-emphasized: cubic-bezier(.16, 1, .3, 1);
+  --motion-stagger-step: 42ms;
+  --motion-lift: 14px;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  transition: background-color var(--motion-duration-base) var(--motion-ease-standard),
+    color var(--motion-duration-base) var(--motion-ease-standard);
+}
+
+button, [role="button"], a, input, select, textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:not(:disabled), [role="button"]:not([aria-disabled="true"]), a {
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-base) var(--motion-ease-standard),
+    border-color var(--motion-duration-base) var(--motion-ease-standard),
+    background-color var(--motion-duration-base) var(--motion-ease-standard),
+    color var(--motion-duration-base) var(--motion-ease-standard);
+}
+
+button:not(:disabled):active,
+[role="button"]:not([aria-disabled="true"]):active { transform: scale(.975); }
+
+[data-motion-item] {
+  --motion-item-delay: min(calc(var(--motion-index, 0) * var(--motion-stagger-step)), 280ms);
+}
+
+[data-motion-item]:not(.is-motion-visible) {
+  opacity: 0;
+  transform: translate3d(0, var(--motion-lift), 0) scale(.992);
+}
+
+[data-motion-item].is-motion-visible {
+  animation: motion-reveal var(--motion-duration-slow) var(--motion-ease-emphasized) both;
+  animation-delay: var(--motion-item-delay);
+}
+
+.motion-page-enter {
+  animation: motion-page-enter var(--motion-duration-base) var(--motion-ease-emphasized) both;
+}
+
+.motion-value-change { animation: motion-value-change 620ms var(--motion-ease-emphasized); }
+.motion-success { animation: motion-success 520ms var(--motion-ease-emphasized); }
+.motion-shake { animation: motion-shake 380ms ease-in-out; }
+.motion-modal-open { animation: motion-backdrop-in var(--motion-duration-base) ease-out both; }
+
+.motion-modal-open > :not([hidden]),
+.motion-modal-open [role="dialog"],
+.motion-modal-open .modal,
+.motion-modal-open .modal-panel {
+  animation: motion-modal-in 320ms var(--motion-ease-emphasized) both;
+}
+
+.motion-modal-closing { animation: motion-backdrop-out var(--motion-duration-fast) ease-in both; }
+
+.motion-modal-closing > :not([hidden]),
+.motion-modal-closing [role="dialog"],
+.motion-modal-closing .modal,
+.motion-modal-closing .modal-panel {
+  animation: motion-modal-out var(--motion-duration-fast) ease-in both;
+}
+
+.motion-status-live::before,
+.badge.pending::before,
+.status-pill::before { animation: motion-status-pulse 1.8s ease-out infinite; }
+
+.empty-state { animation: motion-empty-breathe 4s ease-in-out infinite; }
+[data-motion-loading="true"] { cursor: progress; }
+
+[data-motion-loading="true"] :is(
+  .metric-card, .quick-action, .doctor-card, .lab-card, .appointment-card,
+  .summary-card, .analytics-metric, .person-card
+) {
+  position: relative;
+  overflow: hidden;
+}
+
+[data-motion-loading="true"] :is(
+  .metric-card, .quick-action, .doctor-card, .lab-card, .appointment-card,
+  .summary-card, .analytics-metric, .person-card
+)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .58) 48%, transparent 66%);
+  transform: translateX(-110%);
+  animation: motion-skeleton 1.15s ease-in-out infinite;
+}
+
+.motion-progress-ring { transition: stroke-dashoffset 720ms var(--motion-ease-emphasized); }
+
+body.motion-page-hidden *,
+[hidden] *,
+.motion-paused,
+.motion-paused * { animation-play-state: paused !important; }
+
+@keyframes motion-reveal {
+  from { opacity: 0; transform: translate3d(0, var(--motion-lift), 0) scale(.992); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes motion-page-enter {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes motion-value-change {
+  0%, 100% { transform: scale(1); filter: none; }
+  35% { transform: scale(1.075); filter: drop-shadow(0 6px 14px rgba(15, 174, 140, .22)); }
+}
+
+@keyframes motion-success {
+  0% { transform: scale(.86); opacity: .35; }
+  55% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes motion-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(2px); }
+}
+
+@keyframes motion-modal-in {
+  from { opacity: 0; transform: translate3d(0, 18px, 0) scale(.97); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes motion-modal-out {
+  to { opacity: 0; transform: translate3d(0, 10px, 0) scale(.985); }
+}
+
+@keyframes motion-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes motion-backdrop-out { to { opacity: 0; } }
+
+@keyframes motion-status-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, .35); }
+  70%, 100% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+}
+
+@keyframes motion-empty-breathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@keyframes motion-skeleton { to { transform: translateX(110%); } }
+
+@media (hover: hover) and (pointer: fine) {
+  :is(.metric-card, .doctor-card, .lab-card, .appointment-card, .person-card, .quick-action):hover {
+    transform: translateY(-3px);
+  }
+}
+
+@media (max-width: 640px) {
+  :root { --motion-lift: 9px; --motion-stagger-step: 30ms; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto !important; }
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    transition-delay: 0ms !important;
+  }
+  [data-motion-item]:not(.is-motion-visible) { opacity: 1; transform: none; }
+}

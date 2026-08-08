@@ -52,7 +52,16 @@ const state = {
   modalType: null,
   modalMode: "create",
   modalEntityId: null,
-  modalBusy: false
+  modalBusy: false,
+  currentAdmin: null,
+  csrfToken: "",
+  admins: [],
+  auditLogs: [],
+  adminSearch: "",
+  adminRoleFilter: "all",
+  adminStatusFilter: "all",
+  authBound: false,
+  appBound: false
 };
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
@@ -68,7 +77,14 @@ const displayDate = value => {
 async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      ...(state.csrfToken && !["GET", "HEAD"].includes(String(options.method || "GET").toUpperCase())
+        ? { "X-Admin-CSRF": state.csrfToken }
+        : {}),
+      ...(options.headers || {})
+    }
   });
   let payload = null;
   try {
@@ -78,7 +94,11 @@ async function api(path, options = {}) {
   }
   if (!response.ok) {
     const message = payload?.error?.message || payload?.message || `Request failed (${response.status})`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.code = payload?.error?.code || "REQUEST_FAILED";
+    error.status = response.status;
+    error.details = payload?.error?.details;
+    throw error;
   }
   return payload?.data ?? payload;
 }
@@ -90,13 +110,14 @@ function unwrapList(value, keys = []) {
 }
 
 async function loadData() {
+  window.SehatMotion?.setLoading($(".main"), true);
   const requests = await Promise.allSettled([
     api("/admin/overview"),
-    api("/doctors?includePending=true"),
-    api("/labs?includePending=true"),
-    api("/bookings"),
-    api("/users"),
-    api("/notifications")
+    api("/admin/doctors"),
+    api("/admin/labs"),
+    api("/admin/bookings"),
+    api("/admin/patients"),
+    api("/admin/notifications")
   ]);
   if (requests[0].status === "fulfilled") state.overview = { ...state.overview, ...requests[0].value };
   if (requests[1].status === "fulfilled") state.doctors = unwrapList(requests[1].value, ["doctors", "items"]);
@@ -104,7 +125,14 @@ async function loadData() {
   if (requests[3].status === "fulfilled") state.bookings = unwrapList(requests[3].value, ["bookings", "items"]);
   if (requests[4].status === "fulfilled" && unwrapList(requests[4].value, ["users", "items"]).length) state.users = unwrapList(requests[4].value, ["users", "items"]);
   if (requests[5].status === "fulfilled") state.notifications = unwrapList(requests[5].value, ["notifications", "items"]);
+  const expired = requests.find(result => result.status === "rejected" && ["AUTH_REQUIRED", "SESSION_EXPIRED"].includes(result.reason?.code));
+  if (expired) {
+    showLogin("Your session expired. Please log in again.");
+    return;
+  }
   renderAll();
+  window.SehatMotion?.setLoading($(".main"), false);
+  window.SehatMotion?.enhance($(".view.active"));
 }
 
 function renderAll() {
@@ -115,6 +143,9 @@ function renderAll() {
   renderUsers();
   renderAnalytics();
   renderNotifications();
+  const activeView = $(".view.active");
+  window.SehatMotion?.enhance(activeView);
+  window.SehatMotion?.animateNumbers(activeView, "[data-metric], .booking-summary strong, .insight-card strong, .big-stat strong");
 }
 
 function normalizeOverview() {
@@ -133,7 +164,12 @@ function normalizeOverview() {
 function renderOverview() {
   const metrics = normalizeOverview();
   Object.entries(metrics).forEach(([key, value]) => {
-    $$(`[data-metric="${key}"]`).forEach(node => node.textContent = key === "revenue" ? money(value) : value);
+    $$(`[data-metric="${key}"]`).forEach(node => {
+      const nextValue = String(key === "revenue" ? money(value) : value);
+      const changed = node.textContent && node.textContent !== nextValue;
+      node.textContent = nextValue;
+      if (changed) window.SehatMotion?.highlight(node);
+    });
   });
   $("#doctorBadge").textContent = metrics.pendingDoctors;
   $("#labBadge").textContent = metrics.pendingLabs;
@@ -278,6 +314,77 @@ function renderNotifications() {
     </article>`).join("") : `<div class="empty-state">No notifications sent yet.</div>`;
 }
 
+const roleLabel = role => ({
+  super_admin: "Super Admin",
+  admin: "Admin",
+  receptionist: "Receptionist",
+  support_admin: "Support Admin",
+  verification_admin: "Verification Admin",
+  analytics_admin: "Analytics Admin"
+})[role] || role;
+
+function renderAdmins() {
+  const term = state.adminSearch.toLowerCase();
+  const admins = state.admins.filter(admin => {
+    const matchesSearch = `${admin.adminId} ${admin.fullName} ${admin.email}`.toLowerCase().includes(term);
+    const matchesRole = state.adminRoleFilter === "all" || admin.role === state.adminRoleFilter;
+    const matchesStatus = state.adminStatusFilter === "all" || admin.status === state.adminStatusFilter;
+    return matchesSearch && matchesRole && matchesStatus;
+  });
+  $("#adminAccountGrid").innerHTML = admins.length ? admins.map(admin => `
+    <article class="admin-account-card">
+      <div class="admin-account-head">
+        <span class="entity-avatar">${initials(admin.fullName)}</span>
+        <div><strong>${escapeHtml(admin.fullName)}</strong><small>${escapeHtml(admin.adminId)} · ${escapeHtml(admin.email)}</small></div>
+        <span class="badge ${admin.status === "active" ? "verified" : "suspended"}">${admin.status}</span>
+      </div>
+      <div class="admin-account-meta">
+        <span>Role<b>${escapeHtml(roleLabel(admin.role))}</b></span>
+        <span>Last login<b>${admin.lastLogin ? escapeHtml(displayDate(admin.lastLogin)) : "Never"}</b></span>
+        <span>Created<b>${escapeHtml(displayDate(admin.createdAt))}</b></span>
+        <span>Permissions<b>${admin.permissions?.length || 0} modules</b></span>
+      </div>
+      <div class="admin-account-actions">
+        <button data-admin-edit="${escapeHtml(admin.id)}">Edit access</button>
+        <button data-admin-reset="${escapeHtml(admin.id)}">Reset password</button>
+        <button data-admin-status="${escapeHtml(admin.id)}" data-next-status="${admin.status === "active" ? "disabled" : "active"}">${admin.status === "active" ? "Disable" : "Activate"}</button>
+      </div>
+    </article>`).join("") : `<div class="empty-state">No administrator accounts match this view.</div>`;
+  window.SehatMotion?.enhance($("#adminAccountGrid"));
+}
+
+function renderAuditLogs() {
+  $("#auditLogList").innerHTML = state.auditLogs.length ? state.auditLogs.map(log => `
+    <div class="audit-row">
+      <span><strong>${escapeHtml(log.adminId)}</strong><small>${escapeHtml(log.adminName || "System")}</small></span>
+      <span class="audit-action">${escapeHtml(String(log.action || "").replaceAll(".", " "))}</span>
+      <span><strong>${escapeHtml(log.target || "SehatLine")}</strong><small>${escapeHtml(Object.entries(log.details || {}).map(([key, value]) => `${key}: ${value}`).join(" · ") || "No sensitive details recorded")}</small></span>
+      <span><strong>${escapeHtml(displayDate(log.createdAt))}</strong><small>${escapeHtml(log.ipAddress || "unknown IP")}</small></span>
+    </div>`).join("") : `<div class="empty-state">No audited activity recorded yet.</div>`;
+}
+
+async function loadAdmins() {
+  if (!hasPermission("admin_management")) return;
+  try {
+    state.admins = await api("/admin/users");
+    renderAdmins();
+  } catch (error) {
+    if (["AUTH_REQUIRED", "SESSION_EXPIRED"].includes(error.code)) showLogin("Your session expired. Please log in again.");
+    else showToast(`Could not load administrators: ${error.message}`);
+  }
+}
+
+async function loadAuditLogs() {
+  if (!hasPermission("audit_logs")) return;
+  try {
+    state.auditLogs = await api("/admin/audit-logs?limit=250");
+    renderAuditLogs();
+  } catch (error) {
+    if (["AUTH_REQUIRED", "SESSION_EXPIRED"].includes(error.code)) showLogin("Your session expired. Please log in again.");
+    else showToast(`Could not load audit logs: ${error.message}`);
+  }
+}
+
 const viewMeta = {
   overview: ["Operations overview", "Good evening, Admin"],
   doctors: ["Partner network", "Doctor management"],
@@ -285,18 +392,48 @@ const viewMeta = {
   bookings: ["Care operations", "Booking management"],
   users: ["Community", "User management"],
   analytics: ["City intelligence", "Performance analytics"],
-  notifications: ["Patient engagement", "Notification center"]
+  notifications: ["Patient engagement", "Notification center"],
+  "admin-management": ["Security controls", "Admin Management"],
+  "audit-logs": ["Security history", "Audit Logs"],
+  "access-denied": ["Permission required", "Access denied"]
 };
 
+const viewPermissions = {
+  overview: ["dashboard"],
+  doctors: ["doctor_management", "doctor_verification"],
+  labs: ["document_approval"],
+  bookings: ["live_queue"],
+  users: ["patient_management"],
+  analytics: ["analytics"],
+  notifications: ["complaints_support"],
+  "admin-management": ["admin_management"],
+  "audit-logs": ["audit_logs"]
+};
+
+function hasPermission(permission) {
+  return state.currentAdmin?.role === "super_admin" || state.currentAdmin?.permissions?.includes(permission);
+}
+
+function canAccessView(view) {
+  const required = viewPermissions[view] || [];
+  return !required.length || required.some(hasPermission);
+}
+
 function switchView(view) {
-  const safeView = viewMeta[view] ? view : "overview";
+  let safeView = viewMeta[view] ? view : "overview";
+  if (!canAccessView(safeView)) safeView = "access-denied";
   $$(".view").forEach(node => node.classList.toggle("active", node.id === `view-${safeView}`));
   $$(".nav-item").forEach(node => node.classList.toggle("active", node.dataset.view === safeView));
   $("#pageEyebrow").textContent = viewMeta[safeView][0];
   $("#pageTitle").textContent = viewMeta[safeView][1];
   $("#sidebar").classList.remove("open");
-  history.replaceState(null, "", `#${safeView}`);
+  history.replaceState(null, "", `/admin/dashboard#${safeView}`);
   window.scrollTo({ top: 0, behavior: "smooth" });
+  const activeView = $(`#view-${safeView}`);
+  window.SehatMotion?.enhance(activeView);
+  window.SehatMotion?.animateNumbers(activeView, "[data-metric], .booking-summary strong, .insight-card strong, .big-stat strong");
+  if (safeView === "admin-management") loadAdmins();
+  if (safeView === "audit-logs") loadAuditLogs();
 }
 
 const valueForInput = value => escapeHtml(Array.isArray(value) ? value.join(", ") : value ?? "");
@@ -404,6 +541,50 @@ function doctorFormFields(doctor = {}, mode = "create") {
     </div>`;
 }
 
+const permissionLabels = {
+  dashboard: "Dashboard",
+  doctor_verification: "Doctor Verification",
+  document_approval: "Document Approval",
+  live_queue: "Live Queue Monitoring",
+  patient_management: "Patient Management",
+  doctor_management: "Doctor Management",
+  complaints_support: "Complaints & Support",
+  analytics: "Analytics",
+  reports: "Reports",
+  admin_management: "Admin Management",
+  audit_logs: "Audit Logs",
+  settings: "Settings"
+};
+
+const frontendRoleDefaults = {
+  super_admin: Object.keys(permissionLabels),
+  admin: ["dashboard", "doctor_verification", "document_approval", "live_queue", "patient_management", "doctor_management", "analytics", "reports"],
+  receptionist: ["dashboard", "live_queue", "patient_management"],
+  support_admin: ["dashboard", "patient_management", "complaints_support"],
+  verification_admin: ["dashboard", "doctor_verification", "document_approval", "doctor_management"],
+  analytics_admin: ["dashboard", "analytics", "reports"]
+};
+
+function adminFormFields(admin = {}) {
+  const selectedPermissions = admin.permissions || frontendRoleDefaults[admin.role || "admin"];
+  const assignedDoctors = new Set(admin.assignedDoctorIds || []);
+  const verifiedDoctors = state.doctors.filter(doctor => doctor.verified === true || String(doctor.status).toLowerCase() === "verified");
+  return `<div class="form-grid">
+    <div class="field full"><label>Full name <b>*</b></label><input required name="fullName" autocomplete="name" value="${valueForInput(admin.fullName)}" placeholder="Administrator's legal name"></div>
+    <div class="field"><label>Email address <b>*</b></label><input required type="email" name="email" autocomplete="email" value="${valueForInput(admin.email)}" placeholder="admin@sehatline.in"></div>
+    <div class="field"><label>Mobile number <b>*</b></label><input required type="tel" name="mobile" autocomplete="tel" value="${valueForInput(admin.mobile)}" placeholder="+91 98765 43210"></div>
+    <div class="field full"><label>Role <b>*</b></label><select required name="role" id="adminRoleSelect">
+      ${["admin","receptionist","support_admin","verification_admin","analytics_admin","super_admin"].map(role => `<option value="${role}" ${admin.role === role ? "selected" : ""}>${roleLabel(role)}</option>`).join("")}
+    </select></div>
+    <div class="field full" id="receptionistDoctorAssignments"><label>Assigned verified doctors</label><div class="permission-grid">
+      ${verifiedDoctors.length ? verifiedDoctors.map(doctor => `<label class="permission-option"><input type="checkbox" name="assignedDoctorIds" value="${escapeHtml(doctor.id)}" ${assignedDoctors.has(doctor.id) ? "checked" : ""}><span>${escapeHtml(doctor.name)} · ${escapeHtml(doctor.clinic || doctor.specialty || "Clinic")}</span></label>`).join("") : `<small>No verified doctors are available for assignment yet.</small>`}
+    </div><small>Required for Receptionist accounts. They can access only these doctors and their clinic queues.</small></div>
+    <div class="field full"><label>Module permissions</label><div class="permission-grid">
+      ${Object.entries(permissionLabels).map(([permission, label]) => `<label class="permission-option"><input type="checkbox" name="permissions" value="${permission}" ${selectedPermissions.includes(permission) ? "checked" : ""}><span>${label}</span></label>`).join("")}
+    </div><small>Backend APIs enforce these permissions; hidden navigation alone is not used for security.</small></div>
+  </div>`;
+}
+
 const formTemplates = {
   doctor: {
     title: "Add doctor application",
@@ -425,6 +606,10 @@ const formTemplates = {
       <div class="field full"><label>Message</label><textarea required name="message" id="notificationMessage" placeholder="Tell patients what changed"></textarea></div>
       <div class="field full"><label>Audience</label><select name="audience"><option>All patients</option><option>Queue patients</option><option>Doctors</option><option>PathLabs</option></select></div>
     </div>`
+  },
+  admin: {
+    title: "Create administrator",
+    fields: adminFormFields
   }
 };
 
@@ -433,7 +618,9 @@ function openModal(type, options = {}) {
   const mode = options.mode || "create";
   const entity = type === "doctor" && options.id
     ? state.doctors.find(item => String(item.id) === String(options.id))
-    : {};
+    : type === "admin" && options.id
+      ? state.admins.find(item => String(item.id) === String(options.id))
+      : {};
   if (type === "doctor" && options.id && !entity) {
     showToast("Doctor application could not be found");
     return;
@@ -445,39 +632,63 @@ function openModal(type, options = {}) {
   const doctorStatus = entity ? getStatus(entity) : "pending";
   $("#modalTitle").textContent = isDoctorReview
     ? `${doctorStatus === "verified" ? "Edit" : "Review"} ${entity.name || "doctor application"}`
-    : template.title;
+    : type === "admin" && mode === "edit" ? `Edit ${entity.fullName}` : template.title;
   $("#formFields").innerHTML = typeof template.fields === "function" ? template.fields(entity, mode) : template.fields;
   $("#entityModal").classList.toggle("doctor-review-modal", type === "doctor");
   $("#verifyDoctor").hidden = !isDoctorReview || doctorStatus === "verified";
   $("#rejectDoctor").hidden = !isDoctorReview || doctorStatus === "verified";
-  $("#saveEntity").textContent = type === "doctor" && mode === "create" ? "Save application" : "Save details";
+  $("#saveEntity").textContent = type === "admin"
+    ? mode === "edit" ? "Save access" : "Create admin"
+    : type === "doctor" && mode === "create" ? "Save application" : "Save details";
   $("#formError").hidden = true;
   $("#formError").textContent = "";
   $("#modalBackdrop").hidden = false;
+  window.SehatMotion?.openModal($("#modalBackdrop"));
   document.body.style.overflow = "hidden";
   $("#modalBackdrop input, #modalBackdrop textarea")?.focus();
   $("#notificationTitle")?.addEventListener("input", event => $("#previewTitle").textContent = event.target.value || "Your healthcare update");
   $("#notificationMessage")?.addEventListener("input", event => $("#previewMessage").textContent = event.target.value || "Important care information will appear here.");
+  $("#adminRoleSelect")?.addEventListener("change", event => {
+    const defaults = frontendRoleDefaults[event.target.value] || [];
+    $$('input[name="permissions"]', $("#entityForm")).forEach(input => {
+      input.checked = defaults.includes(input.value);
+      input.disabled = event.target.value === "receptionist";
+    });
+    if ($("#receptionistDoctorAssignments")) $("#receptionistDoctorAssignments").hidden = event.target.value !== "receptionist";
+  });
+  if ($("#receptionistDoctorAssignments")) {
+    const isReceptionist = $("#adminRoleSelect")?.value === "receptionist";
+    $("#receptionistDoctorAssignments").hidden = !isReceptionist;
+    if (isReceptionist) $$('input[name="permissions"]', $("#entityForm")).forEach(input => { input.disabled = true; });
+  }
 }
 
 function closeModal() {
-  $("#modalBackdrop").hidden = true;
-  document.body.style.overflow = "";
-  $("#entityForm").reset();
-  $("#entityModal").classList.remove("doctor-review-modal");
-  $("#formError").hidden = true;
-  $("#verifyDoctor").hidden = true;
-  $("#rejectDoctor").hidden = true;
-  setModalBusy(false);
-  state.modalType = null;
-  state.modalMode = "create";
-  state.modalEntityId = null;
+  const backdrop = $("#modalBackdrop");
+  const cleanup = () => {
+    backdrop.hidden = true;
+    document.body.style.overflow = "";
+    $("#entityForm").reset();
+    $("#entityModal").classList.remove("doctor-review-modal");
+    $("#formError").hidden = true;
+    $("#verifyDoctor").hidden = true;
+    $("#rejectDoctor").hidden = true;
+    $("#saveEntity").hidden = false;
+    $("#cancelModal").textContent = "Cancel";
+    setModalBusy(false);
+    state.modalType = null;
+    state.modalMode = "create";
+    state.modalEntityId = null;
+  };
+  if (window.SehatMotion) window.SehatMotion.closeModal(backdrop, cleanup);
+  else cleanup();
 }
 
 function showToast(message) {
   const toast = $("#toast");
   toast.textContent = message;
   toast.classList.add("show");
+  window.SehatMotion?.highlight(toast, "success");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.remove("show"), 2800);
 }
@@ -486,7 +697,10 @@ function showFormError(message) {
   const error = $("#formError");
   error.textContent = message;
   error.hidden = !message;
-  if (message) error.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  if (message) {
+    window.SehatMotion?.shake(error);
+    error.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
 }
 
 function setModalBusy(isBusy) {
@@ -544,6 +758,22 @@ function upsertDoctor(doctor) {
   };
 }
 
+function showTemporaryCredentials(result) {
+  $("#modalTitle").textContent = "Administrator created";
+  $("#formFields").innerHTML = `
+    <div class="credential-reveal">
+      <p class="eyebrow">Shown once only</p>
+      <div class="credential-row"><span>Admin ID</span><code>${escapeHtml(result.admin.adminId)}</code><button type="button" data-copy-credential="${escapeHtml(result.admin.adminId)}">Copy</button></div>
+      <div class="credential-row"><span>Temporary password</span><code>${escapeHtml(result.temporaryPassword)}</code><button type="button" data-copy-credential="${escapeHtml(result.temporaryPassword)}">Copy</button></div>
+      <p class="credential-warning">Share these credentials through a secure channel. This password will not be shown again and must be changed on first login.</p>
+    </div>`;
+  $("#saveEntity").hidden = true;
+  $("#cancelModal").textContent = "Done";
+  $("#verifyDoctor").hidden = true;
+  $("#rejectDoctor").hidden = true;
+  state.modalType = "credential";
+}
+
 async function submitEntity(event) {
   event.preventDefault();
   const type = state.modalType;
@@ -564,6 +794,31 @@ async function submitEntity(event) {
       payload.homeCollection = payload.homeCollection === "true"; payload.status = "pending";
       const created = await api("/labs", { method: "POST", body: JSON.stringify(payload) });
       state.labs.unshift(created);
+    } else if (type === "admin") {
+      const formData = new FormData(event.currentTarget);
+      const payload = {
+        fullName: formData.get("fullName"),
+        email: formData.get("email"),
+        mobile: formData.get("mobile"),
+        role: formData.get("role"),
+        permissions: formData.getAll("permissions"),
+        assignedDoctorIds: formData.getAll("assignedDoctorIds")
+      };
+      if (state.modalMode === "edit") {
+        const updated = await api(`/admin/users/${encodeURIComponent(state.modalEntityId)}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload)
+        });
+        const index = state.admins.findIndex(admin => admin.id === updated.id);
+        if (index >= 0) state.admins[index] = updated;
+      } else {
+        const created = await api("/admin/users", { method: "POST", body: JSON.stringify(payload) });
+        state.admins.unshift(created.admin);
+        renderAdmins();
+        showTemporaryCredentials(created);
+        showToast("Administrator created securely");
+        return;
+      }
     } else {
       const payload = Object.fromEntries(new FormData(event.currentTarget));
       payload.createdAt = new Date().toISOString();
@@ -574,6 +829,7 @@ async function submitEntity(event) {
     }
     closeModal();
     renderAll();
+    if (type === "admin") renderAdmins();
     showToast(type === "doctor" ? "Doctor details saved" : `${formTemplates[type].title.replace("Add a", "").replace("Create", "")} saved successfully`);
   } catch (error) {
     showFormError(`Could not save: ${error.message}. No changes were confirmed.`);
@@ -681,17 +937,278 @@ function exportBookings() {
   showToast("Booking export downloaded");
 }
 
+async function resetAdminPassword(id) {
+  if (!confirm("Reset this administrator's password and revoke all active sessions?")) return;
+  try {
+    const result = await api(`/admin/users/${encodeURIComponent(id)}/reset-password`, { method: "POST", body: "{}" });
+    openModal("admin", { mode: "edit", id });
+    showTemporaryCredentials(result);
+  } catch (error) {
+    showToast(`Password reset failed: ${error.message}`);
+  }
+}
+
+async function changeAdminStatus(id, status) {
+  const verb = status === "disabled" ? "disable" : "activate";
+  if (!confirm(`Are you sure you want to ${verb} this administrator?`)) return;
+  try {
+    const updated = await api(`/admin/users/${encodeURIComponent(id)}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status })
+    });
+    const index = state.admins.findIndex(admin => admin.id === updated.id);
+    if (index >= 0) state.admins[index] = updated;
+    renderAdmins();
+    showToast(`Administrator ${status === "disabled" ? "disabled" : "activated"}`);
+  } catch (error) {
+    showToast(`Access update failed: ${error.message}`);
+  }
+}
+
+async function copyCredential(value) {
+  try {
+    await navigator.clipboard.writeText(value);
+    showToast("Credential copied");
+  } catch {
+    showToast("Copy was blocked. Select the credential manually.");
+  }
+}
+
+function setAuthError(selector, message = "") {
+  const node = $(selector);
+  node.textContent = message;
+  node.hidden = !message;
+  if (message) window.SehatMotion?.shake(node);
+}
+
+function setAuthButtonLoading(button, loading, label) {
+  if (!button) return;
+  if (loading) {
+    button.dataset.label = button.innerHTML;
+    button.disabled = true;
+    button.classList.add("is-loading");
+    button.textContent = label;
+  } else {
+    button.disabled = false;
+    button.classList.remove("is-loading");
+    button.innerHTML = button.dataset.label || button.innerHTML;
+  }
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem("sehatline-admin-theme", theme);
+  if ($("#authThemeToggle")) $("#authThemeToggle").textContent = theme === "dark" ? "☀" : "☾";
+}
+
+function showLogin(message = "") {
+  if (location.pathname !== "/admin/login") {
+    location.replace("/admin/login");
+    return;
+  }
+  if (!message && new URLSearchParams(location.search).get("notice") === "password-updated") {
+    message = "Password updated successfully. Log in with your new password.";
+  }
+  state.currentAdmin = null;
+  state.csrfToken = "";
+  $("#adminAppShell").hidden = true;
+  $("#adminAuthShell").hidden = false;
+  $("#adminLoginForm").hidden = false;
+  $("#adminPasswordChangeForm").hidden = true;
+  $("#sessionMessage").textContent = message;
+  $("#sessionMessage").hidden = !message;
+  setAuthError("#adminLoginError");
+  history.replaceState(null, "", "/admin/login");
+  setTimeout(() => $("#adminIdentifier")?.focus(), 0);
+}
+
+function showPasswordChange() {
+  if (location.pathname !== "/admin/change-password") {
+    location.replace("/admin/change-password");
+    return;
+  }
+  $("#adminAppShell").hidden = true;
+  $("#adminAuthShell").hidden = false;
+  $("#adminLoginForm").hidden = true;
+  $("#adminPasswordChangeForm").hidden = false;
+  setTimeout(() => $("#adminPasswordChangeForm input")?.focus(), 0);
+}
+
+function applyAdminPermissions() {
+  const admin = state.currentAdmin;
+  $("#currentAdminName").textContent = admin.fullName;
+  $("#currentAdminRole").textContent = roleLabel(admin.role);
+  $("#adminAvatar").textContent = initials(admin.fullName);
+  $$("[data-permission]").forEach(node => {
+    node.hidden = !hasPermission(node.dataset.permission);
+  });
+  $$(".nav-item[data-view]").forEach(node => {
+    node.hidden = !canAccessView(node.dataset.view);
+  });
+  $$("[data-super-admin-only]").forEach(node => { node.hidden = admin.role !== "super_admin"; });
+  $("#quickAddButton").hidden = !(hasPermission("doctor_management") || hasPermission("document_approval"));
+  $$("[data-open-modal='doctor']").forEach(node => { node.hidden = !hasPermission("doctor_management"); });
+  $$("[data-open-modal='lab']").forEach(node => { node.hidden = !hasPermission("document_approval"); });
+  $$("[data-open-modal='notification']").forEach(node => { node.hidden = !hasPermission("complaints_support"); });
+}
+
+function enterAdminPanel(admin, csrfToken) {
+  if (admin.role === "receptionist") {
+    location.replace("/receptionist/");
+    return;
+  }
+  if (location.pathname !== "/admin/dashboard") {
+    location.replace(`/admin/dashboard${location.hash || "#overview"}`);
+    return;
+  }
+  state.currentAdmin = admin;
+  state.csrfToken = csrfToken;
+  if ($("#adminAuthShell")) $("#adminAuthShell").hidden = true;
+  $("#adminAppShell").hidden = false;
+  applyAdminPermissions();
+  if (!state.appBound) {
+    bindEvents();
+    state.appBound = true;
+  }
+  const requested = location.hash.slice(1) || "overview";
+  switchView(requested);
+  renderAll();
+  loadData();
+}
+
+function loginErrorMessage(error) {
+  if (error.code === "ACCOUNT_DISABLED") return "This administrator account has been disabled. Contact the Super Admin.";
+  if (error.code === "TOO_MANY_ATTEMPTS") return "Too many login attempts. Please wait 15 minutes and try again.";
+  if (error.code === "SESSION_EXPIRED") return "Your session expired. Please log in again.";
+  return error.code === "INVALID_CREDENTIALS"
+    ? "Invalid Admin ID/email or password."
+    : error.message || "Login could not be completed.";
+}
+
+function passwordChecks(value) {
+  return {
+    length: value.length >= 8,
+    upper: /[A-Z]/.test(value),
+    lower: /[a-z]/.test(value),
+    number: /\d/.test(value),
+    special: /[^A-Za-z0-9]/.test(value)
+  };
+}
+
+function updatePasswordStrength(value) {
+  const checks = passwordChecks(value);
+  const score = Object.values(checks).filter(Boolean).length;
+  Object.entries(checks).forEach(([rule, valid]) => $(`[data-rule="${rule}"]`)?.classList.toggle("valid", valid));
+  $("#passwordStrengthBar").style.width = `${score * 20}%`;
+  $("#passwordStrengthBar").style.background = score < 3 ? "var(--coral)" : score < 5 ? "#f59e0b" : "var(--emerald)";
+  return score === 5;
+}
+
+function bindAuthEvents() {
+  if (state.authBound) return;
+  state.authBound = true;
+  $("#authThemeToggle").addEventListener("click", () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
+  $("#toggleAdminPassword").addEventListener("click", () => {
+    const input = $("#adminPassword");
+    input.type = input.type === "password" ? "text" : "password";
+    $("#toggleAdminPassword").textContent = input.type === "password" ? "Show" : "Hide";
+    $("#toggleAdminPassword").setAttribute("aria-label", input.type === "password" ? "Show password" : "Hide password");
+  });
+  $("#newAdminPassword").addEventListener("input", event => updatePasswordStrength(event.target.value));
+  $("#adminLoginForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    setAuthError("#adminLoginError");
+    const formData = new FormData(event.currentTarget);
+    const button = $("#adminLoginButton");
+    setAuthButtonLoading(button, true, "Verifying access…");
+    try {
+      const result = await api("/admin/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          identifier: formData.get("identifier"),
+          password: formData.get("password"),
+          remember: formData.get("remember") === "on"
+        })
+      });
+      state.currentAdmin = result.admin;
+      state.csrfToken = result.csrfToken;
+      if (result.admin.role === "receptionist") location.assign("/receptionist/");
+      else if (result.mustChangePassword) location.assign("/admin/change-password");
+      else location.assign("/admin/dashboard#overview");
+    } catch (error) {
+      setAuthError("#adminLoginError", loginErrorMessage(error));
+    } finally {
+      setAuthButtonLoading(button, false);
+    }
+  });
+  $("#adminPasswordChangeForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    setAuthError("#passwordChangeError");
+    const formData = new FormData(event.currentTarget);
+    const newPassword = String(formData.get("newPassword") || "");
+    if (!updatePasswordStrength(newPassword)) {
+      setAuthError("#passwordChangeError", "Use at least eight characters with uppercase, lowercase, number and special character.");
+      return;
+    }
+    if (newPassword !== formData.get("confirmPassword")) {
+      setAuthError("#passwordChangeError", "New passwords do not match.");
+      return;
+    }
+    const button = $("#passwordChangeButton");
+    setAuthButtonLoading(button, true, "Securing account…");
+    try {
+      await api("/admin/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ currentPassword: formData.get("currentPassword"), newPassword })
+      });
+      event.currentTarget.reset();
+      updatePasswordStrength("");
+      location.replace("/admin/login?notice=password-updated");
+    } catch (error) {
+      setAuthError("#passwordChangeError", error.message);
+    } finally {
+      setAuthButtonLoading(button, false);
+    }
+  });
+}
+
+async function restoreAdminSession() {
+  try {
+    const result = await api("/admin/auth/me");
+    if (result.admin.role === "receptionist") {
+      location.replace("/receptionist/");
+    } else if (result.admin.mustChangePassword) {
+      state.currentAdmin = result.admin;
+      state.csrfToken = result.csrfToken;
+      if (location.pathname !== "/admin/change-password") location.replace("/admin/change-password");
+      else showPasswordChange();
+    } else {
+      enterAdminPanel(result.admin, result.csrfToken);
+    }
+  } catch (error) {
+    showLogin(error.code === "SESSION_EXPIRED" ? "Your session expired. Please log in again." : "");
+  }
+}
+
 function bindEvents() {
   $$(".nav-item").forEach(button => button.addEventListener("click", () => switchView(button.dataset.view)));
   $$("[data-jump]").forEach(button => button.addEventListener("click", () => switchView(button.dataset.jump)));
   $("#menuToggle").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
-  $("#themeToggle").addEventListener("click", () => {
-    const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem("sehatline-admin-theme", theme);
-    $("#themeToggle").textContent = theme === "dark" ? "☀" : "☾";
+  $("#logoutButton").addEventListener("click", async () => {
+    try {
+      await api("/admin/auth/logout", { method: "POST", body: "{}" });
+      location.replace("/admin/login");
+    } catch (error) {
+      if (["AUTH_REQUIRED", "SESSION_EXPIRED"].includes(error.code)) showLogin("Your session expired. Please log in again.");
+      else showToast(`Logout could not be completed: ${error.message}`);
+    }
   });
   $("#quickAddButton").addEventListener("click", () => openModal("doctor"));
+  $("#createAdminButton").addEventListener("click", () => openModal("admin"));
+  $("#refreshAuditLogs").addEventListener("click", loadAuditLogs);
+  $("#adminSearch").addEventListener("input", event => { state.adminSearch = event.target.value; renderAdmins(); });
+  $("#adminRoleFilter").addEventListener("change", event => { state.adminRoleFilter = event.target.value; renderAdmins(); });
+  $("#adminStatusFilter").addEventListener("change", event => { state.adminStatusFilter = event.target.value; renderAdmins(); });
   $$("[data-open-modal]").forEach(button => button.addEventListener("click", () => openModal(button.dataset.openModal)));
   $("#closeModal").addEventListener("click", closeModal);
   $("#cancelModal").addEventListener("click", closeModal);
@@ -713,6 +1230,16 @@ function bindEvents() {
     else { state.labFilter = button.dataset.filter; renderLabs(); }
   }));
   document.addEventListener("click", event => {
+    const directView = event.target.closest("[data-view]:not(.nav-item)");
+    if (directView) switchView(directView.dataset.view);
+    const editAdmin = event.target.closest("[data-admin-edit]");
+    if (editAdmin) openModal("admin", { mode: "edit", id: editAdmin.dataset.adminEdit });
+    const resetAdmin = event.target.closest("[data-admin-reset]");
+    if (resetAdmin) resetAdminPassword(resetAdmin.dataset.adminReset);
+    const statusAdmin = event.target.closest("[data-admin-status]");
+    if (statusAdmin) changeAdminStatus(statusAdmin.dataset.adminStatus, statusAdmin.dataset.nextStatus);
+    const copyButton = event.target.closest("[data-copy-credential]");
+    if (copyButton) copyCredential(copyButton.dataset.copyCredential);
     const verify = event.target.closest("[data-verify]");
     if (verify) {
       const [type, id] = verify.dataset.verify.split(":");
@@ -752,17 +1279,14 @@ function bindEvents() {
   });
 }
 
-function initialize() {
+async function initialize() {
   const savedTheme = localStorage.getItem("sehatline-admin-theme") || "light";
-  document.documentElement.dataset.theme = savedTheme;
-  $("#themeToggle").textContent = savedTheme === "dark" ? "☀" : "☾";
-  bindEvents();
-  switchView(location.hash.slice(1) || "overview");
-  renderAll();
-  loadData();
+  applyTheme(savedTheme);
+  if ($("#adminAuthShell")) bindAuthEvents();
+  await restoreAdminSession();
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
 }
 
-initialize();
+initialize().catch(() => showLogin("Admin Portal could not initialize. Please refresh and try again."));
