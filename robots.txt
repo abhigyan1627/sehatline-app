@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+Disallow: /admin/
+Disallow: /api/
+Disallow: /doctor/
+Disallow: /receptionist/
+
+Sitemap: https://mysehatline.in/sitemap.xml
