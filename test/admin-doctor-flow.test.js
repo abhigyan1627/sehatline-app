@@ -8,9 +8,44 @@ import { startServer } from "../backend/src/server.js";
 test("admin completes and verifies a doctor before public listing", async () => {
   const tempDirectory = await mkdtemp(path.join(os.tmpdir(), "sehatline-doctor-flow-"));
   const dataFile = path.join(tempDirectory, "runtime.json");
-  const { server, url } = await startServer({ port: 0, dataFile, logger: { error() {} } });
+  const { server, url, adminAuth } = await startServer({ port: 0, dataFile, logger: { error() {}, warn() {} } });
 
   try {
+    await adminAuth.createFirstSuperAdmin({
+      fullName: "Doctor Verification Owner",
+      email: "verification-owner@sehatline.test",
+      mobile: "+91 98765 40000",
+      password: "Temporary!Owner9"
+    });
+    const firstLogin = await fetch(`${url}/api/admin/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier: "SL-ADMIN-001", password: "Temporary!Owner9" })
+    });
+    const firstBody = await firstLogin.json();
+    const firstCookie = firstLogin.headers.get("set-cookie").split(";")[0];
+    await fetch(`${url}/api/admin/auth/change-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: firstCookie, "X-Admin-CSRF": firstBody.csrfToken },
+      body: JSON.stringify({ currentPassword: "Temporary!Owner9", newPassword: "Permanent!Owner8" })
+    });
+    const login = await fetch(`${url}/api/admin/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier: "SL-ADMIN-001", password: "Permanent!Owner8" })
+    });
+    const loginBody = await login.json();
+    const adminCookie = login.headers.get("set-cookie").split(";")[0];
+    const adminFetch = (path, options = {}) => fetch(`${url}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: adminCookie,
+        "X-Admin-CSRF": loginBody.csrfToken,
+        ...(options.headers || {})
+      }
+    });
+
     const initialDoctors = await fetch(`${url}/api/doctors`).then(response => response.json());
     assert.deepEqual(initialDoctors, []);
 
@@ -29,9 +64,9 @@ test("admin completes and verifies a doctor before public listing", async () => 
 
     assert.equal(created.status, "pending");
     assert.deepEqual(await fetch(`${url}/api/doctors`).then(response => response.json()), []);
-    assert.equal((await fetch(`${url}/api/doctors?includePending=true`).then(response => response.json())).length, 1);
+    assert.equal((await adminFetch("/api/doctors?includePending=true").then(response => response.json())).length, 1);
 
-    const incompleteResponse = await fetch(`${url}/api/doctors/${created.id}/verify`, {
+    const incompleteResponse = await adminFetch(`/api/doctors/${created.id}/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}"
@@ -41,7 +76,7 @@ test("admin completes and verifies a doctor before public listing", async () => 
     assert.ok(incomplete.error.details.includes("registrationNumber"));
     assert.ok(incomplete.error.details.includes("phone"));
 
-    const completed = await fetch(`${url}/api/doctors/${created.id}`, {
+    const completed = await adminFetch(`/api/doctors/${created.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -75,14 +110,14 @@ test("admin completes and verifies a doctor before public listing", async () => 
     }).then(response => response.json());
     assert.equal(completed.status, "pending");
 
-    const verified = await fetch(`${url}/api/doctors/${created.id}/verify`, {
+    const verified = await adminFetch(`/api/doctors/${created.id}/verify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ approvedBy: "Admin", approvalNote: "Documents checked manually" })
     }).then(response => response.json());
 
     assert.equal(verified.verified, true);
-    assert.equal(verified.approvedBy, "Admin");
+    assert.equal(verified.approvedBy, "SL-ADMIN-001");
 
     const publicDoctors = await fetch(`${url}/api/doctors`).then(response => response.json());
     assert.equal(publicDoctors.length, 1);
@@ -91,7 +126,7 @@ test("admin completes and verifies a doctor before public listing", async () => 
     assert.equal("email" in publicDoctors[0], false);
     assert.equal("documents" in publicDoctors[0], false);
 
-    const adminDetail = await fetch(`${url}/api/doctors/${created.id}?includePending=true`).then(response => response.json());
+    const adminDetail = await adminFetch(`/api/doctors/${created.id}?includePending=true`).then(response => response.json());
     assert.equal(adminDetail.phone, "+91 98765 43210");
     assert.equal(adminDetail.email, "private@example.test");
     assert.equal(adminDetail.documents.registrationCertificate.name, "Registration");
@@ -101,7 +136,7 @@ test("admin completes and verifies a doctor before public listing", async () => 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "Dr. Rejected Test", specialty: "Physician" })
     }).then(response => response.json());
-    const rejected = await fetch(`${url}/api/doctors/${rejectedApplication.id}/reject`, {
+    const rejected = await adminFetch(`/api/doctors/${rejectedApplication.id}/reject`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason: "Registration proof could not be verified", rejectedBy: "Admin" })
@@ -110,10 +145,10 @@ test("admin completes and verifies a doctor before public listing", async () => 
     assert.equal((await fetch(`${url}/api/doctors`).then(response => response.json())).length, 1);
     assert.equal((await fetch(`${url}/api/doctors/${rejectedApplication.id}`)).status, 404);
 
-    const removed = await fetch(`${url}/api/doctors/${created.id}`, { method: "DELETE" });
+    const removed = await adminFetch(`/api/doctors/${created.id}`, { method: "DELETE" });
     assert.equal(removed.ok, true);
-    assert.equal((await fetch(`${url}/api/doctors/${rejectedApplication.id}`, { method: "DELETE" })).ok, true);
-    assert.deepEqual(await fetch(`${url}/api/doctors?includePending=true`).then(response => response.json()), []);
+    assert.equal((await adminFetch(`/api/doctors/${rejectedApplication.id}`, { method: "DELETE" })).ok, true);
+    assert.deepEqual(await adminFetch("/api/doctors?includePending=true").then(response => response.json()), []);
   } finally {
     await new Promise(resolve => server.close(resolve));
     await rm(tempDirectory, { recursive: true, force: true });

@@ -11,13 +11,84 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./styles.css?v=3">
+  <link rel="stylesheet" href="/assets/motion/sehatline-motion.css?v=2">
+  <link rel="stylesheet" href="./styles.css?v=5">
+  <link rel="stylesheet" href="/assets/footer/site-footer.css?v=3">
 </head>
 <body>
+  <template id="legacyAuthTemplate">
+    <div class="auth-visual">
+      <a class="auth-brand" href="/admin/login" aria-label="SehatLine Admin Portal">
+        <span class="brand-mark animated-brand-mark" aria-hidden="true">
+          <img src="/assets/logos/sehatline-mark-frame.png" alt="">
+          <video autoplay muted loop playsinline preload="metadata"><source src="/assets/logos/sehatline-animated.mp4" type="video/mp4"></video>
+        </span>
+        <span><strong>SehatLine</strong><small>ADMIN PORTAL</small></span>
+      </a>
+      <div class="auth-visual-copy">
+        <span class="auth-security-chip">Protected operations workspace</span>
+        <h1>Healthcare administration with verified access.</h1>
+        <p>Only administrators created by the SehatLine Super Admin can enter this workspace.</p>
+      </div>
+      <div class="auth-trust-list">
+        <span><i>✓</i> Role-based module access</span>
+        <span><i>✓</i> Secure activity auditing</span>
+        <span><i>✓</i> Protected verification actions</span>
+      </div>
+    </div>
+
+    <div class="auth-form-side">
+      <button class="icon-button auth-theme-toggle" id="authThemeToggle" aria-label="Toggle color theme">☾</button>
+      <form class="admin-login-card" id="adminLoginForm" novalidate>
+        <div class="auth-card-heading">
+          <p class="eyebrow">Authorized access only</p>
+          <h2 id="adminAuthTitle">Admin Portal</h2>
+          <p>Enter your Admin ID or registered email to continue.</p>
+        </div>
+        <div class="auth-message session-message" id="sessionMessage" hidden></div>
+        <label class="auth-field">
+          <span>Admin ID or email</span>
+          <input id="adminIdentifier" name="identifier" autocomplete="username" placeholder="SL-ADMIN-001" required>
+        </label>
+        <label class="auth-field">
+          <span>Password</span>
+          <span class="password-control">
+            <input id="adminPassword" name="password" type="password" autocomplete="current-password" placeholder="Enter your secure password" required>
+            <button type="button" id="toggleAdminPassword" aria-label="Show password">Show</button>
+          </span>
+        </label>
+        <label class="remember-option"><input type="checkbox" name="remember"><span>Remember me on this trusted device</span></label>
+        <p class="auth-message error" id="adminLoginError" role="alert" hidden></p>
+        <button class="primary-button auth-submit" id="adminLoginButton" type="submit">Log in securely <span>→</span></button>
+        <p class="auth-help">No public signup is available. Contact your Super Admin if you need access.</p>
+      </form>
+
+      <form class="admin-login-card password-change-card" id="adminPasswordChangeForm" hidden novalidate>
+        <div class="auth-card-heading">
+          <p class="eyebrow">First login security</p>
+          <h2>Choose a permanent password</h2>
+          <p>Your temporary password must be replaced before the Admin Panel opens.</p>
+        </div>
+        <label class="auth-field"><span>Current temporary password</span><input name="currentPassword" type="password" autocomplete="current-password" required></label>
+        <label class="auth-field"><span>New password</span><input id="newAdminPassword" name="newPassword" type="password" autocomplete="new-password" required></label>
+        <div class="password-strength"><i id="passwordStrengthBar"></i></div>
+        <ul class="password-rules" id="passwordRules">
+          <li data-rule="length">At least 8 characters</li>
+          <li data-rule="upper">One uppercase letter</li>
+          <li data-rule="lower">One lowercase letter</li>
+          <li data-rule="number">One number</li>
+          <li data-rule="special">One special character</li>
+        </ul>
+        <label class="auth-field"><span>Confirm new password</span><input name="confirmPassword" type="password" autocomplete="new-password" required></label>
+        <p class="auth-message error" id="passwordChangeError" role="alert" hidden></p>
+        <button class="primary-button auth-submit" id="passwordChangeButton" type="submit">Set password and continue <span>→</span></button>
+      </form>
+    </div>
+  </template>
   <div class="ambient ambient-one"></div>
   <div class="ambient ambient-two"></div>
 
-  <div class="app-shell">
+  <div class="app-shell" id="adminAppShell" hidden>
     <aside class="sidebar" id="sidebar">
       <a class="brand" href="#overview" aria-label="SehatLine dashboard">
         <span class="brand-mark animated-brand-mark" aria-hidden="true">
@@ -51,6 +122,13 @@
         <button class="nav-item" data-view="notifications">
           <span class="nav-icon">◇</span><span>Notifications</span>
         </button>
+        <p class="nav-label" data-super-admin-only>Security</p>
+        <button class="nav-item" data-view="admin-management" data-permission="admin_management">
+          <span class="nav-icon">♙</span><span>Admin Management</span>
+        </button>
+        <button class="nav-item" data-view="audit-logs" data-permission="audit_logs">
+          <span class="nav-icon">≡</span><span>Audit Logs</span>
+        </button>
       </nav>
 
       <div class="support-card">
@@ -61,9 +139,9 @@
       </div>
 
       <div class="admin-profile">
-        <div class="avatar">AK</div>
-        <span><strong>Admin</strong><small>City Operations</small></span>
-        <button class="icon-button" id="themeToggle" aria-label="Toggle color theme">☾</button>
+        <div class="avatar" id="adminAvatar">AK</div>
+        <span><strong id="currentAdminName">Admin</strong><small id="currentAdminRole">City Operations</small></span>
+        <button class="icon-button" id="logoutButton" aria-label="Log out">↪</button>
       </div>
     </aside>
 
@@ -295,6 +373,35 @@
           </div>
         </div>
       </section>
+
+      <section class="view" id="view-admin-management">
+        <div class="section-heading">
+          <div><p class="eyebrow">Super Admin controls</p><h2>Admin Management</h2><p>Create authorized accounts, assign permissions and manage access securely.</p></div>
+          <button class="primary-button" id="createAdminButton">＋ Create admin</button>
+        </div>
+        <div class="admin-management-toolbar panel">
+          <label class="table-search"><span>⌕</span><input id="adminSearch" type="search" placeholder="Search Admin ID, name or email"></label>
+          <select id="adminRoleFilter" aria-label="Filter by role"><option value="all">All roles</option><option value="super_admin">Super Admin</option><option value="admin">Admin</option><option value="receptionist">Receptionist</option><option value="support_admin">Support Admin</option><option value="verification_admin">Verification Admin</option><option value="analytics_admin">Analytics Admin</option></select>
+          <select id="adminStatusFilter" aria-label="Filter by status"><option value="all">All statuses</option><option value="active">Active</option><option value="disabled">Disabled</option></select>
+        </div>
+        <div class="admin-account-grid" id="adminAccountGrid"></div>
+      </section>
+
+      <section class="view" id="view-audit-logs">
+        <div class="section-heading">
+          <div><p class="eyebrow">Security history</p><h2>Audit Logs</h2><p>Review sensitive actions without exposing passwords, sessions or tokens.</p></div>
+          <button class="ghost-button" id="refreshAuditLogs">Refresh logs</button>
+        </div>
+        <div class="panel audit-table" id="auditLogList"></div>
+      </section>
+
+      <section class="view access-denied-view" id="view-access-denied">
+        <div class="access-denied-card">
+          <span>!</span><p class="eyebrow">Permission required</p><h2>Access denied</h2>
+          <p>Your administrator role does not include access to this module.</p>
+          <button class="primary-button" data-view="overview">Return to dashboard</button>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -315,6 +422,8 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=4"></script>
+  <script src="/assets/motion/sehatline-motion.js?v=2"></script>
+  <script src="/assets/footer/site-footer.js?v=3" defer></script>
+  <script type="module" src="./app.js?v=6"></script>
 </body>
 </html>

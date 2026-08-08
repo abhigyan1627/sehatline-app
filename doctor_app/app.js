@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const appConfig = window.SEHATLINE_CONFIG || { mode: "demo", apiBaseUrl: "", allowGuestAccess: true };
+  const appConfig = window.SEHATLINE_CONFIG || { mode: "production", apiBaseUrl: "", allowGuestAccess: false };
   const isProduction = appConfig.mode === "production";
   const apiUrl = path => `${String(appConfig.apiBaseUrl || "").replace(/\/+$/, "")}${path}`;
 
@@ -110,6 +110,20 @@
   };
   /* DEMO_DATA_END */
 
+  const emptyData = {
+    dashboard: { metrics: [
+      { label: "Today's appointments", value: "0", trend: "0 tokens open", icon: "calendar", tone: "mint" },
+      { label: "Total patients", value: "0", trend: "Verified bookings", icon: "users", tone: "blue" },
+      { label: "Waiting now", value: "0", trend: "Queue closed", icon: "clock", tone: "amber" },
+      { label: "Completed today", value: "0", trend: "0 served", icon: "check", tone: "violet" }
+    ] },
+    appointments: [],
+    queue: { status: "closed", date: "", current: null, waiting: [], seen: 0, issued: 0, capacity: 0, remaining: 0, averageMinutes: 15, expectedMinutes: 15, elapsedSeconds: 0, delayMinutes: 0 },
+    patients: [],
+    profile: { name: "Doctor", specialisation: "", availability: [], holidays: [], services: [] },
+    analytics: { totalBookings: 0, repeatPatients: "0%", revenue: "₹0", rating: "0", cancellationRate: "0%" }
+  };
+
   const state = {
     view: "dashboard",
     theme: localStorage.getItem("sl_doctor_theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
@@ -122,13 +136,15 @@
     patientSearch: "",
     patientSort: "recent",
     queueTimer: null,
+    queueSyncTimer: null,
+    schedule: null,
     lastFocused: null,
-    dashboard: clone(demoData.dashboard),
-    appointments: clone(demoData.appointments),
-    queue: clone(demoData.queue),
-    patients: clone(demoData.patients),
-    profile: clone(demoData.profile),
-    analytics: clone(demoData.analytics)
+    dashboard: clone(emptyData.dashboard),
+    appointments: clone(emptyData.appointments),
+    queue: clone(emptyData.queue),
+    patients: clone(emptyData.patients),
+    profile: clone(emptyData.profile),
+    analytics: clone(emptyData.analytics)
   };
 
   async function apiRequest(path, options = {}, fallback = null) {
@@ -144,7 +160,10 @@
 
     try {
       const response = await fetch(apiUrl(path), { ...options, headers, signal: controller.signal });
-      if (!response.ok) throw new Error(`API ${response.status}`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error?.message || payload?.message || `Request failed (${response.status})`);
+      }
       const data = response.status === 204 ? null : await response.json();
       return { data, fallback: false };
     } catch (error) {
@@ -183,6 +202,7 @@
       <span><b>${escapeHTML(title)}</b>${detail ? `<small>${escapeHTML(detail)}</small>` : ""}</span>
     `;
     $("#toast-region").append(toast);
+    window.SehatMotion?.highlight(toast, type === "error" ? "change" : "success");
     setTimeout(() => {
       toast.classList.add("leaving");
       setTimeout(() => toast.remove(), 260);
@@ -225,6 +245,20 @@
     return values.join("");
   }
 
+  function calculatedTokenCapacity(startTime, endTime, durationMinutes) {
+    const toMinutes = value => {
+      const [hours, minutes] = String(value || "").split(":").map(Number);
+      return Number.isFinite(hours) && Number.isFinite(minutes) ? (hours * 60) + minutes : 0;
+    };
+    const duration = Math.max(5, Number(durationMinutes) || 15);
+    return Math.max(0, Math.floor((toMinutes(endTime) - toMinutes(startTime)) / duration));
+  }
+
+  function localDateValue(date = new Date()) {
+    const offset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+  }
+
   function normalizeLoadedData(data, fallback, shape = "object") {
     if (shape === "array") return Array.isArray(data) ? data : clone(fallback);
     return data && typeof data === "object" && !Array.isArray(data) ? { ...clone(fallback), ...data } : clone(fallback);
@@ -232,33 +266,36 @@
 
   async function loadAppData() {
     if (state.loaded) return;
-    const [dashboardResult, appointmentResult, queueResult, patientResult, profileResult, analyticsResult] = await Promise.all([
-      apiRequest("/api/doctor/dashboard", {}, demoData.dashboard),
-      apiRequest("/api/doctor/appointments?date=today", {}, demoData.appointments),
-      apiRequest("/api/doctor/queue", {}, demoData.queue),
-      apiRequest("/api/doctor/patients", {}, demoData.patients),
-      apiRequest("/api/doctor/profile", {}, demoData.profile),
-      apiRequest("/api/doctor/analytics?range=30", {}, demoData.analytics)
+    const today = localDateValue();
+    const [dashboardResult, appointmentResult, queueResult, patientResult, profileResult, analyticsResult, scheduleResult] = await Promise.all([
+      apiRequest("/api/doctor/dashboard", {}, emptyData.dashboard),
+      apiRequest("/api/doctor/appointments?date=today", {}, emptyData.appointments),
+      apiRequest(`/api/doctor/queue?date=${today}`, {}, emptyData.queue),
+      apiRequest("/api/doctor/patients", {}, emptyData.patients),
+      apiRequest("/api/doctor/profile", {}, emptyData.profile),
+      apiRequest("/api/doctor/analytics?range=30", {}, emptyData.analytics),
+      apiRequest(`/api/doctor/schedule?date=${today}`, {}, null)
     ]);
 
-    state.dashboard = normalizeLoadedData(dashboardResult.data, demoData.dashboard);
-    state.appointments = normalizeLoadedData(appointmentResult.data, demoData.appointments, "array");
-    state.queue = normalizeLoadedData(queueResult.data, demoData.queue);
-    state.queue.waiting = Array.isArray(state.queue.waiting) ? state.queue.waiting : clone(demoData.queue.waiting);
-    state.patients = normalizeLoadedData(patientResult.data, demoData.patients, "array");
-    state.profile = normalizeLoadedData(profileResult.data, demoData.profile);
-    state.profile.availability = Array.isArray(state.profile.availability) ? state.profile.availability : clone(demoData.profile.availability);
-    state.profile.holidays = Array.isArray(state.profile.holidays) ? state.profile.holidays : clone(demoData.profile.holidays);
-    state.profile.services = Array.isArray(state.profile.services) ? state.profile.services : clone(demoData.profile.services);
-    state.analytics = normalizeLoadedData(analyticsResult.data, demoData.analytics);
+    state.dashboard = normalizeLoadedData(dashboardResult.data, emptyData.dashboard);
+    state.appointments = normalizeLoadedData(appointmentResult.data, emptyData.appointments, "array");
+    state.queue = normalizeLoadedData(queueResult.data, emptyData.queue);
+    state.queue.waiting = Array.isArray(state.queue.waiting) ? state.queue.waiting : [];
+    state.patients = normalizeLoadedData(patientResult.data, emptyData.patients, "array");
+    state.profile = normalizeLoadedData(profileResult.data, emptyData.profile);
+    state.profile.availability = Array.isArray(state.profile.availability) ? state.profile.availability : [];
+    state.profile.holidays = Array.isArray(state.profile.holidays) ? state.profile.holidays : [];
+    state.profile.services = Array.isArray(state.profile.services) ? state.profile.services : [];
+    state.analytics = normalizeLoadedData(analyticsResult.data, emptyData.analytics);
+    state.schedule = scheduleResult.data && !Array.isArray(scheduleResult.data) ? scheduleResult.data : null;
     state.demoMode = state.demoMode || [dashboardResult, appointmentResult, queueResult, patientResult, profileResult, analyticsResult].some(result => result.fallback);
     state.loaded = true;
   }
 
-  async function enterApp(session = {}, demo = false) {
+  async function enterApp(session = {}) {
     state.authenticated = true;
-    state.demoMode = demo;
-    localStorage.setItem("sl_doctor_session", JSON.stringify({ demo, at: Date.now(), token: session.token || null }));
+    state.demoMode = false;
+    localStorage.setItem("sl_doctor_session", JSON.stringify({ at: Date.now(), token: session.token || null }));
     $("#auth-screen").hidden = true;
     $("#app-shell").hidden = false;
     document.body.classList.add("app-active");
@@ -267,7 +304,8 @@
     renderAll();
     navigate(location.hash.replace("#", "") || "dashboard", false);
     startQueueClock();
-    if (demo) showToast("Demo clinic ready", "Everything is interactive—no real patient data is used.");
+    startQueueSync();
+    openDailyScheduleSetup();
   }
 
   function logout() {
@@ -275,6 +313,7 @@
     state.authenticated = false;
     state.loaded = false;
     clearInterval(state.queueTimer);
+    clearInterval(state.queueSyncTimer);
     closeModal();
     $("#app-shell").hidden = true;
     $("#auth-screen").hidden = false;
@@ -286,6 +325,7 @@
   }
 
   function renderAll() {
+    renderDoctorIdentity();
     renderDashboard();
     renderAppointments();
     renderQueue();
@@ -295,6 +335,79 @@
     renderHolidays();
     renderServices();
     updateNavCounts();
+  }
+
+  function renderDoctorIdentity() {
+    const name = state.profile.name || "Doctor";
+    const specialty = state.profile.specialisation || state.profile.specialty || "Verified doctor";
+    const shortName = name.replace(/^Dr\.\s*/i, "").split(/\s+/)[0] || "Doctor";
+    const doctorInitials = initials(name);
+    const sidebar = $(".sidebar-doctor");
+    if (sidebar) {
+      $(".avatar-doctor", sidebar).textContent = doctorInitials;
+      $("b", sidebar).textContent = name;
+      $("small", sidebar).textContent = specialty;
+    }
+    const topAvatar = $("#profile-shortcut");
+    if (topAvatar) topAvatar.textContent = doctorInitials;
+    viewTitles.dashboard.kicker = new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "numeric", month: "long" }).format(new Date()).toUpperCase();
+    viewTitles.dashboard.title = `Good day, Dr. ${shortName}`;
+    const form = $("#profile-form");
+    if (!form) return;
+    const values = {
+      name,
+      specialisation: specialty,
+      registration: state.profile.registrationNumber || "",
+      experience: state.profile.experience || 0,
+      qualifications: state.profile.qualification || state.profile.qualifications || "",
+      languages: Array.isArray(state.profile.languages) ? state.profile.languages.join(", ") : (state.profile.languages || ""),
+      about: state.profile.about || "",
+      clinicName: state.profile.clinic || state.profile.clinicName || "",
+      clinicPhone: state.profile.clinicPhone || state.profile.phone || "",
+      city: state.profile.city || "",
+      address: state.profile.address || ""
+    };
+    Object.entries(values).forEach(([field, value]) => {
+      if (form.elements[field]) form.elements[field].value = value;
+    });
+    $(".large-avatar", form).textContent = doctorInitials;
+    $("#about-count").textContent = String(values.about.length);
+  }
+
+  function openDailyScheduleSetup() {
+    const today = localDateValue();
+    const saved = state.schedule?.date === today ? state.schedule : {};
+    const start = saved.startTime || "09:00";
+    const end = saved.endTime || "17:00";
+    const duration = saved.durationMinutes || 15;
+    const slots = saved.slots || [];
+    const fullCapacity = calculatedTokenCapacity(start, end, duration);
+    const dailyLimit = saved.maxDailyTokens || saved.capacity || fullCapacity;
+    openModal(`
+      <form id="daily-schedule-form" class="daily-schedule-form">
+        <span class="eyebrow">TODAY'S AVAILABILITY</span>
+        <h2 id="modal-title">Select once, slots generate automatically</h2>
+        <p>Choose your clinic date and working window. SehatLine will create bookable time slots—no individual slot entry needed.</p>
+        <div class="daily-schedule-grid">
+          <label>Date<input name="date" type="date" min="${today}" value="${saved.date || today}" required></label>
+          <label>Start<select name="startTime">${timeOptions(start)}</select></label>
+          <label>End<select name="endTime">${timeOptions(end)}</select></label>
+          <label>Per patient<select name="durationMinutes">${[10, 15, 20, 30, 45, 60].map(value => `<option value="${value}" ${value === Number(duration) ? "selected" : ""}>${value} minutes</option>`).join("")}</select></label>
+          <label>Daily token limit<input name="maxDailyTokens" type="number" min="1" max="96" value="${dailyLimit}" required><small>Maximum tokens patients can book for this date.</small></label>
+        </div>
+        <div class="auto-slot-preview" id="auto-slot-preview">${slots.length ? `<strong>${saved.bookedCount || 0} issued · ${saved.remainingTokens ?? slots.length} remaining · ${slots.length} capacity</strong><small>${slots.slice(0, 6).map(slot => formatTimeValue(slot.time)).join(" · ")}${slots.length > 6 ? " · …" : ""}</small>` : `<strong>0 issued · ${dailyLimit} remaining · ${dailyLimit} capacity</strong><small>Capacity is calculated from hours and consultation duration.</small>`}</div>
+        <button class="primary-button full-button" type="submit">${icon("calendar")} Generate & publish slots</button>
+      </form>
+    `, { modalClass: "schedule-setup-modal", focusSelector: "[name='date']" });
+    const form = $("#daily-schedule-form");
+    const refreshCapacity = () => {
+      const generated = calculatedTokenCapacity(form.elements.startTime.value, form.elements.endTime.value, form.elements.durationMinutes.value);
+      const requested = Math.max(0, Math.min(generated, Number(form.elements.maxDailyTokens.value) || generated));
+      form.elements.maxDailyTokens.max = String(Math.max(1, generated));
+      $("#auto-slot-preview").innerHTML = `<strong>0 issued · ${requested} remaining · ${requested} capacity</strong><small>${generated} time slots fit in the selected working hours.</small>`;
+    };
+    form.addEventListener("input", refreshCapacity);
+    form.addEventListener("change", refreshCapacity);
   }
 
   function renderDashboard() {
@@ -401,6 +514,9 @@
     $("#queue-waiting-count").textContent = queue.waiting.length;
     $("#queue-seen-count").textContent = queue.seen;
     $("#queue-avg-time").textContent = `${queue.averageMinutes}m`;
+    $("#queue-issued-count").textContent = queue.issued || 0;
+    $("#queue-capacity-count").textContent = queue.capacity || 0;
+    $("#queue-remaining-count").textContent = queue.remaining || 0;
     $("#expected-time").value = queue.expectedMinutes;
     $("#expected-time-value").textContent = queue.expectedMinutes;
     updateRangeBackground($("#expected-time"));
@@ -411,8 +527,8 @@
 
     const pauseButton = $("#pause-queue");
     if (queue.status === "closed") {
-      pauseButton.innerHTML = `${icon("play")} Start OPD`;
-      pauseButton.disabled = false;
+      pauseButton.innerHTML = `${icon("play")} ${queue.capacity > 0 ? "Start OPD" : "Publish schedule first"}`;
+      pauseButton.disabled = queue.capacity <= 0;
       $("#call-next").disabled = true;
     } else if (queue.status === "paused") {
       pauseButton.innerHTML = `${icon("play")} Resume OPD`;
@@ -555,7 +671,7 @@
   }
 
   const viewTitles = {
-    dashboard: { kicker: "SATURDAY, 25 JULY", title: "Good evening, Dr. Aditi 👋" },
+    dashboard: { kicker: "TODAY", title: "Doctor workspace" },
     appointments: { kicker: "TODAY’S PRACTICE", title: "Manage appointments" },
     queue: { kicker: "LIVE CLINIC FLOW", title: "Queue control" },
     patients: { kicker: "PATIENT DIRECTORY", title: "Your patients" },
@@ -573,6 +689,9 @@
     if (updateHash) history.replaceState(null, "", `#${view}`);
     window.scrollTo({ top: 0, behavior: "smooth" });
     $("#main-content").focus({ preventScroll: true });
+    const activeView = $(`#view-${view}`);
+    window.SehatMotion?.enhance(activeView);
+    window.SehatMotion?.animateNumbers(activeView, ".metric-card b, .analytics-metric b, .queue-summary strong");
   }
 
   function doctorApplicationModal() {
@@ -616,6 +735,12 @@
               </label>
               <label class="application-field" for="application-email">Professional email <em aria-hidden="true">*</em>
                 <input id="application-email" name="email" type="email" autocomplete="email" maxlength="160" placeholder="doctor@clinic.com" required>
+              </label>
+              <label class="application-photo-field full" for="application-photo">
+                <span class="application-photo-preview" id="application-photo-preview">${icon("user")}</span>
+                <span><strong>Professional profile photo <em aria-hidden="true">*</em></strong><small>Required for the verified doctor profile · JPG, PNG or WebP</small></span>
+                <input id="application-photo" name="profilePhotoFile" type="file" accept="image/jpeg,image/png,image/webp" capture="user" required>
+                <input name="profilePhotoUrl" type="hidden">
               </label>
             </div>
           </fieldset>
@@ -680,6 +805,11 @@
               <label class="application-field full" for="application-address">Clinic address <em aria-hidden="true">*</em>
                 <textarea id="application-address" name="address" autocomplete="street-address" maxlength="260" rows="2" placeholder="Building, road and locality" required></textarea>
               </label>
+              <div class="application-field full application-location-row">
+                <button class="secondary-button compact-button" type="button" data-application-location>${icon("location")} Use clinic's live location</button>
+                <small>Permission is requested only when you press this button.</small>
+                <input name="latitude" type="hidden"><input name="longitude" type="hidden">
+              </div>
               <label class="application-field" for="application-city">City <em aria-hidden="true">*</em>
                 <input id="application-city" name="city" autocomplete="address-level2" maxlength="80" placeholder="Prayagraj" required>
               </label>
@@ -853,6 +983,11 @@
       city: String(data.city || "").trim(),
       pincode: String(data.pincode || "").trim(),
       location: `${String(data.city || "").trim()} - ${String(data.pincode || "").trim()}`,
+      latitude: data.latitude ? Number(data.latitude) : null,
+      longitude: data.longitude ? Number(data.longitude) : null,
+      coordinates: data.latitude && data.longitude ? { latitude: Number(data.latitude), longitude: Number(data.longitude) } : null,
+      photoUrl: String(data.profilePhotoUrl || "").trim(),
+      profilePhoto: String(data.profilePhotoUrl || "").trim(),
       languages,
       documents,
       registrationCertificateName: documents.registrationCertificate.name,
@@ -924,6 +1059,7 @@
     $("#modal").className = `modal${options.modalClass ? ` ${options.modalClass}` : ""}`;
     $("#modal-content").innerHTML = content;
     $("#modal-backdrop").hidden = false;
+    window.SehatMotion?.openModal($("#modal-backdrop"));
     document.body.style.overflow = "hidden";
     requestAnimationFrame(() => {
       const focusTarget = options.focusSelector ? $(options.focusSelector, $("#modal")) : $("input, select, textarea, button:not(.modal-close)", $("#modal-content"));
@@ -933,11 +1069,16 @@
 
   function closeModal() {
     if ($("#modal-backdrop").hidden) return;
-    $("#modal-backdrop").hidden = true;
-    $("#modal-content").innerHTML = "";
-    $("#modal").className = "modal";
-    document.body.style.overflow = "";
-    if (state.lastFocused && document.contains(state.lastFocused)) state.lastFocused.focus();
+    const backdrop = $("#modal-backdrop");
+    const cleanup = () => {
+      backdrop.hidden = true;
+      $("#modal-content").innerHTML = "";
+      $("#modal").className = "modal";
+      document.body.style.overflow = "";
+      if (state.lastFocused && document.contains(state.lastFocused)) state.lastFocused.focus();
+    };
+    if (window.SehatMotion) window.SehatMotion.closeModal(backdrop, cleanup);
+    else cleanup();
   }
 
   function statusModal(appointment, action) {
@@ -1102,7 +1243,7 @@
       <h2 id="modal-title">Block a date</h2>
       <p>Bookings will be unavailable for this clinic on the selected date.</p>
       <form id="holiday-form">
-        <div class="modal-fields"><label>Date<input name="date" type="date" min="2026-07-25" required></label><label>Reason<input name="label" placeholder="Personal leave" required></label></div>
+        <div class="modal-fields"><label>Date<input name="date" type="date" min="${localDateValue()}" required></label><label>Reason<input name="label" placeholder="Personal leave" required></label></div>
         <div class="modal-actions"><button class="secondary-button compact-button" type="button" data-close-modal>Cancel</button><button class="primary-button compact-button" type="submit">Block date</button></div>
       </form>
     `);
@@ -1169,6 +1310,21 @@
       state.queue.elapsedSeconds += 1;
       if ($("#queue-elapsed")) $("#queue-elapsed").textContent = formatClock(state.queue.elapsedSeconds);
     }, 1000);
+  }
+
+  function startQueueSync() {
+    clearInterval(state.queueSyncTimer);
+    const sync = async () => {
+      if (!state.authenticated) return;
+      const result = await apiRequest("/api/doctor/queue", {}, state.queue);
+      if (!result?.data || result.fallback) return;
+      const elapsed = state.queue?.elapsedSeconds || 0;
+      state.queue = normalizeLoadedData(result.data, state.queue);
+      if (!Number.isFinite(Number(state.queue.elapsedSeconds))) state.queue.elapsedSeconds = elapsed;
+      renderQueue();
+      renderDashboard();
+    };
+    state.queueSyncTimer = setInterval(sync, 5000);
   }
 
   function openNotifications(open = true) {
@@ -1294,18 +1450,13 @@
         result = await apiRequest("/api/auth/doctor/verify-otp", {
           method: "POST",
           body: JSON.stringify({ phone: `+91${phone}`, otp: code })
-        }, { token: "demo-session", doctor: demoData.profile });
-      } catch {
+        }, null);
+      } catch (error) {
         setButtonLoading(button, false);
-        $("#otp-error").textContent = "Verification failed. Please request a new code.";
+        $("#otp-error").textContent = error.message;
         return;
       }
-      if (result.fallback && code !== "123456") {
-        setButtonLoading(button, false);
-        $("#otp-error").textContent = "For this prototype, use OTP 123456.";
-        return;
-      }
-      await enterApp(result.data || {}, result.fallback);
+      await enterApp(result.data || {});
       setButtonLoading(button, false);
     });
 
@@ -1317,8 +1468,13 @@
 
     $("#resend-otp").addEventListener("click", async event => {
       event.currentTarget.disabled = true;
-      await apiRequest("/api/auth/doctor/request-otp", { method: "POST" }, { sent: true });
-      showToast("OTP sent again", "Use 123456 in this prototype.");
+      const phone = $("#phone").value.replace(/\D/g, "");
+      try {
+        await apiRequest("/api/auth/doctor/request-otp", { method: "POST", body: JSON.stringify({ phone: `+91${phone}` }) }, null);
+        showToast("OTP sent again", "Enter the new code sent to your registered mobile.");
+      } catch (error) {
+        showToast("OTP not sent", error.message, "error");
+      }
       startResendCountdown();
     });
   }
@@ -1400,9 +1556,10 @@
 
     const moveDate = direction => {
       state.appointmentDateOffset += direction;
-      const date = new Date(2026, 6, 25 + state.appointmentDateOffset);
+      const date = new Date();
+      date.setDate(date.getDate() + state.appointmentDateOffset);
       $("#appointment-date span").textContent = state.appointmentDateOffset === 0
-        ? "Today, 25 July"
+        ? `Today, ${new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "long" }).format(new Date())}`
         : date.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
       renderAppointments();
     };
@@ -1410,7 +1567,7 @@
     $("#next-day").addEventListener("click", () => moveDate(1));
     $("#appointment-date").addEventListener("click", () => {
       state.appointmentDateOffset = 0;
-      $("#appointment-date span").textContent = "Today, 25 July";
+      $("#appointment-date span").textContent = `Today, ${new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "long" }).format(new Date())}`;
       renderAppointments();
     });
   }
@@ -1486,8 +1643,8 @@
   function bindAnalytics() {
     $("#analytics-range").addEventListener("change", async event => {
       const value = event.target.value;
-      const result = await apiRequest(`/api/doctor/analytics?range=${encodeURIComponent(value)}`, {}, demoData.analytics);
-      state.analytics = normalizeLoadedData(result.data, demoData.analytics);
+      const result = await apiRequest(`/api/doctor/analytics?range=${encodeURIComponent(value)}`, {}, emptyData.analytics);
+      state.analytics = normalizeLoadedData(result.data, emptyData.analytics);
       renderAnalytics(value === "90" ? 2.75 : value === "365" ? 10.8 : 1);
       showToast("Analytics updated", event.target.options[event.target.selectedIndex].text);
     });
@@ -1598,6 +1755,23 @@
         $("#application-form-error")?.replaceChildren();
       }
     });
+    $("#modal-content").addEventListener("change", event => {
+      if (!event.target.matches("#application-photo")) return;
+      const file = event.target.files?.[0];
+      const form = event.target.closest("#doctor-application-form");
+      if (!file || !form) return;
+      window.SehatCare.preparePhoto(file).then(dataUrl => {
+        form.dataset.profilePhotoData = dataUrl;
+        const preview = $("#application-photo-preview", form);
+        if (preview) {
+          preview.innerHTML = "";
+          preview.style.backgroundImage = `url('${dataUrl}')`;
+        }
+      }).catch(error => {
+        event.target.value = "";
+        showToast("Photo not accepted", error.message, "error");
+      });
+    });
     $("#modal-content").addEventListener("click", async event => {
       if (event.target.closest("[data-close-modal]")) closeModal();
 
@@ -1617,6 +1791,25 @@
       if (event.target.closest("[data-application-done]")) {
         closeModal();
         $("#phone")?.focus();
+      }
+
+      const locationButton = event.target.closest("[data-application-location]");
+      if (locationButton) {
+        const form = locationButton.closest("#doctor-application-form");
+        setButtonLoading(locationButton, true, "Detecting clinic…");
+        try {
+          const result = await window.SehatCare.requestLocation();
+          form.elements.address.value = result.displayName || "";
+          form.elements.city.value = result.city || "";
+          form.elements.pincode.value = result.pincode || "";
+          form.elements.latitude.value = result.latitude;
+          form.elements.longitude.value = result.longitude;
+          showToast("Clinic location added", result.locality || result.city || result.displayName);
+        } catch (error) {
+          showToast("Location not added", error.message, "error");
+        } finally {
+          setButtonLoading(locationButton, false);
+        }
       }
 
       const reschedule = event.target.closest("[data-reschedule]");
@@ -1657,6 +1850,27 @@
       const button = event.submitter;
       setButtonLoading(button, true);
 
+      if (form.id === "daily-schedule-form") {
+        const fields = Object.fromEntries(new FormData(form).entries());
+        try {
+          const result = await apiRequest("/api/doctor/schedule", {
+            method: "PUT",
+            body: JSON.stringify({ ...fields, durationMinutes: Number(fields.durationMinutes), maxDailyTokens: Number(fields.maxDailyTokens), breakMinutes: 0 })
+          }, null);
+          if (result.fallback || !result.data) throw new Error("Schedule API is unavailable");
+          state.schedule = result.data;
+          closeModal();
+          state.queue.capacity = state.schedule.capacity;
+          state.queue.issued = state.schedule.bookedCount;
+          state.queue.remaining = state.schedule.remainingTokens;
+          showToast("Daily tokens are live", `${state.schedule.capacity} tokens published for ${state.schedule.date}.`);
+        } catch (error) {
+          setButtonLoading(button, false);
+          showToast("Schedule not saved", error.message, "error");
+        }
+        return;
+      }
+
       if (form.id === "doctor-application-form") {
         const invalidStep = [1, 2, 3, 4].find(step => !validateApplicationStep(form, step));
         if (invalidStep) {
@@ -1666,6 +1880,11 @@
           return;
         }
         try {
+          if (!form.elements.profilePhotoUrl.value) {
+            const photoData = form.dataset.profilePhotoData || await window.SehatCare.preparePhoto(form.elements.profilePhotoFile.files?.[0]);
+            const upload = await window.SehatCare.uploadPhoto(photoData, "doctor");
+            form.elements.profilePhotoUrl.value = upload.url;
+          }
           const application = await submitDoctorApplication(buildDoctorApplicationPayload(form));
           showDoctorApplicationConfirmation(application || {});
         } catch (error) {
@@ -1780,8 +1999,8 @@
     $("#sidebar-menu").addEventListener("click", () => {
       openModal(`
         <span class="modal-icon">${icon("user")}</span>
-        <h2 id="modal-title">Dr. Aditi Kapoor</h2>
-        <p>Dermatologist · Kapoor Skin &amp; Wellness Clinic</p>
+        <h2 id="modal-title">${escapeHTML(state.profile.name || "Doctor")}</h2>
+        <p>${escapeHTML(state.profile.specialisation || state.profile.specialty || "Verified doctor")} · ${escapeHTML(state.profile.clinic || "Clinic details not added")}</p>
         <div class="modal-actions"><button class="secondary-button compact-button" type="button" data-close-modal>Close</button><button class="primary-button compact-button" id="logout-button" type="button">${icon("logout")} Sign out</button></div>
       `);
     });
@@ -1815,9 +2034,10 @@
     if (savedSession) {
       try {
         const session = JSON.parse(savedSession);
-        await enterApp(session, Boolean(session.demo));
+        await enterApp(session);
       } catch {
-        localStorage.removeItem("sl_doctor_session");
+        logout();
+        $("#phone-error").textContent = "Your secure session expired. Sign in again.";
       }
     }
   }

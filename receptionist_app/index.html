@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f4fbf9">
+  <meta name="application-name" content="SehatLine Receptionist">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="SehatLine Desk">
+  <meta name="description" content="Secure SehatLine clinic reception, appointments and live token queue workspace.">
+  <title>SehatLine Receptionist · Secure Clinic Desk</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="/patient/icons/icon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/patient/icons/icon.png">
+  <link rel="stylesheet" href="/assets/motion/sehatline-motion.css?v=2">
+  <link rel="stylesheet" href="/assets/pwa/install-prompt.css?v=1">
+  <link rel="stylesheet" href="/assets/care/care-background.css?v=1">
+  <link rel="stylesheet" href="/assets/footer/site-footer.css?v=3">
+  <link rel="stylesheet" href="./styles.css?v=1">
+</head>
+<body data-pwa-id="receptionist" data-pwa-name="SehatLine Receptionist" data-pwa-icon="/patient/icons/icon.png">
+  <section class="auth-shell" id="authShell">
+    <div class="auth-scene" aria-hidden="true">
+      <div class="brand-lockup"><img src="/assets/logos/sehatline-mark-frame.png" alt=""><span><strong>SehatLine</strong><small>SECURE CLINIC DESK</small></span></div>
+      <div class="auth-copy"><span class="eyebrow">OWNER-APPROVED ACCESS</span><h1>Every patient.<br><em>Every token.</em><br>One calm desk.</h1><p>Run clinic reception securely with verified staff access, real appointments and a connected live queue.</p></div>
+      <div class="security-points"><span>✓ Assigned clinics only</span><span>✓ Audited front-desk actions</span><span>✓ No public receptionist signup</span></div>
+    </div>
+    <div class="auth-panel">
+      <div class="mobile-brand"><img src="/assets/logos/sehatline-mark-frame.png" alt=""><strong>SehatLine Desk</strong></div>
+      <form class="auth-card" id="loginForm">
+        <span class="auth-icon" data-icon="shield"></span><p class="eyebrow">RECEPTIONIST PORTAL</p><h2>Welcome to your clinic desk</h2><p class="muted">Use the Staff ID or email and temporary password created by the SehatLine Owner.</p>
+        <label><span>Staff ID or email</span><input name="identifier" autocomplete="username" required placeholder="SL-ADMIN-002 or email"></label>
+        <label><span>Password</span><span class="password-field"><input id="loginPassword" name="password" type="password" autocomplete="current-password" required placeholder="Enter secure password"><button type="button" data-toggle-password="loginPassword">Show</button></span></label>
+        <label class="remember"><input type="checkbox" name="remember"><span>Keep me signed in on this trusted clinic device</span></label>
+        <p class="form-error" id="loginError" role="alert" hidden></p>
+        <button class="primary-button" type="submit" id="loginButton">Open clinic desk <span data-icon="arrow"></span></button>
+        <div class="auth-help">No account? Ask the SehatLine Owner to create and assign a Receptionist account.</div>
+      </form>
+      <form class="auth-card" id="passwordForm" hidden>
+        <span class="auth-icon" data-icon="lock"></span><p class="eyebrow">FIRST LOGIN SECURITY</p><h2>Create your private password</h2><p class="muted">Temporary passwords must be replaced before any clinic data is shown.</p>
+        <label><span>Current temporary password</span><input name="currentPassword" type="password" autocomplete="current-password" required></label>
+        <label><span>New strong password</span><input name="newPassword" type="password" autocomplete="new-password" required></label>
+        <label><span>Confirm new password</span><input name="confirmPassword" type="password" autocomplete="new-password" required></label>
+        <div class="password-rules">Use 8+ characters with uppercase, lowercase, number and special character.</div>
+        <p class="form-error" id="passwordError" role="alert" hidden></p>
+        <button class="primary-button" type="submit" id="passwordButton">Secure account <span data-icon="shield"></span></button>
+      </form>
+    </div>
+  </section>
+
+  <div class="portal-shell" id="portalShell" hidden>
+    <aside class="sidebar" id="sidebar">
+      <a class="side-brand" href="/" aria-label="SehatLine home"><img src="/assets/logos/sehatline-mark-frame.png" alt=""><span><strong>SehatLine</strong><small>CLINIC DESK</small></span></a>
+      <nav aria-label="Receptionist navigation">
+        <button class="nav-item active" data-route="dashboard"><span data-icon="grid"></span>Overview</button>
+        <button class="nav-item" data-route="appointments"><span data-icon="calendar"></span>Appointments</button>
+        <button class="nav-item" data-route="queue"><span data-icon="activity"></span>Live Queue</button>
+        <button class="nav-item" data-route="walk-in"><span data-icon="user-plus"></span>New Walk-in</button>
+        <button class="nav-item" data-route="patients"><span data-icon="users"></span>Patients</button>
+      </nav>
+      <div class="desk-security"><span data-icon="shield"></span><strong>Secure session</strong><small>All desk actions are logged for safety.</small></div>
+      <button class="logout-button" id="logoutButton"><span data-icon="logout"></span>Log out</button>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <button class="menu-button" id="menuButton" aria-label="Open menu"><span data-icon="menu"></span></button>
+        <div class="top-title"><p id="todayLabel">Clinic operations</p><h1 id="pageTitle">Good morning</h1></div>
+        <div class="top-controls">
+          <label class="clinic-select"><span>Working desk</span><select id="doctorSelect" aria-label="Choose assigned doctor"></select></label>
+          <label class="date-select"><span>Date</span><input type="date" id="deskDate"></label>
+          <button class="profile-button" id="profileButton" aria-label="Receptionist profile"><span id="staffInitials">SL</span><i></i></button>
+        </div>
+      </header>
+      <main class="main" id="main" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <script src="/assets/motion/sehatline-motion.js?v=2" defer></script>
+  <script src="/assets/pwa/install-prompt.js?v=1" defer></script>
+  <script src="/assets/footer/site-footer.js?v=3" defer></script>
+  <script src="./app.js?v=1" defer></script>
+</body>
+</html>

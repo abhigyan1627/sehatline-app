@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
@@ -26,4 +26,10 @@ test("production mobile bundles exclude demo records and controls", async () => 
   assert.match(patientConfig, /"mode": "production"/);
   assert.match(doctorConfig, /"allowGuestAccess": false/);
   assert.match(patientConfig, /https:\/\/api\.sehatline\.invalid/);
+  await Promise.all([
+    access("dist/patient/assets/motion/sehatline-motion.css"),
+    access("dist/patient/assets/motion/sehatline-motion.js"),
+    access("dist/doctor/assets/motion/sehatline-motion.css"),
+    access("dist/doctor/assets/motion/sehatline-motion.js")
+  ]);
 });

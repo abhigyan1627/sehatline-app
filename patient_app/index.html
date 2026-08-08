@@ -3,16 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="application-name" content="SehatLine Patient" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#f5fbfa" />
-    <meta name="description" content="SehatLine — discover, compare and book trusted healthcare." />
+    <meta name="description" content="SehatLine — discover verified doctors and book trusted healthcare." />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="SehatLine" />
     <title>SehatLine — Smarter Care. Better Life.</title>
     <link rel="manifest" href="./manifest.json" />
     <link rel="icon" href="./icons/icon.png" type="image/png" />
-    <link rel="stylesheet" href="./styles.css?v=11" />
+    <link rel="apple-touch-icon" href="./icons/icon.png" />
+    <link rel="stylesheet" href="/assets/motion/sehatline-motion.css?v=2" />
+    <link rel="stylesheet" href="/assets/pwa/install-prompt.css?v=1" />
+    <link rel="stylesheet" href="./styles.css?v=14" />
+    <link rel="stylesheet" href="/assets/care/care-background.css?v=1" />
+    <link rel="stylesheet" href="/assets/footer/site-footer.css?v=3" />
   </head>
-  <body>
+  <body data-pwa-id="patient" data-pwa-name="SehatLine Patient" data-pwa-icon="/patient/icons/icon.png">
     <div class="ambient ambient-one" aria-hidden="true"></div>
     <div class="ambient ambient-two" aria-hidden="true"></div>
 
@@ -68,6 +76,10 @@
     </template>
 
     <script src="./config.js?v=3"></script>
-    <script src="./app.js?v=11" defer></script>
+    <script src="/assets/care/care-tools.js?v=2" defer></script>
+    <script src="/assets/footer/site-footer.js?v=3" defer></script>
+    <script src="/assets/motion/sehatline-motion.js?v=2" defer></script>
+    <script src="/assets/pwa/install-prompt.js?v=1" defer></script>
+    <script src="./app.js?v=14" defer></script>
   </body>
 </html>

@@ -1,5 +1,5 @@
 window.SEHATLINE_CONFIG = Object.freeze({
-  mode: "demo",
+  mode: "production",
   apiBaseUrl: "",
-  allowGuestAccess: true
+  allowGuestAccess: false
 });

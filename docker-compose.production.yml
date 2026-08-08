@@ -1,0 +1,58 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - sehatline_mongo:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --username '$$MONGO_INITDB_ROOT_USERNAME' --password '$$MONGO_INITDB_ROOT_PASSWORD' --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 })' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 4000
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongo:27017/sehatline?authSource=admin
+      SEHATLINE_SKIP_DATABASE: "false"
+      SEHATLINE_UPLOAD_ROOT: /app/backend/data/uploads
+    volumes:
+      - sehatline_uploads:/app/backend/data/uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      SEHATLINE_DOMAIN: ${SEHATLINE_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - sehatline_caddy_data:/data
+      - sehatline_caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  sehatline_mongo:
+  sehatline_uploads:
+  sehatline_caddy_data:
+  sehatline_caddy_config:

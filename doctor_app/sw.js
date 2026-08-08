@@ -1,4 +1,5 @@
-const CACHE_NAME = "sehatline-doctor-v4";
+const CACHE_PREFIX = "sehatline-doctor-";
+const CACHE_NAME = `${CACHE_PREFIX}v10`;
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -7,7 +8,17 @@ const APP_SHELL = [
   "./app.js",
   "./manifest.json",
   "./app-icon.png",
+  "./app-icon-192.png",
   "./app-icon-maskable.png",
+  "/assets/motion/sehatline-motion.css",
+  "/assets/motion/sehatline-motion.js",
+  "/assets/pwa/install-prompt.css",
+  "/assets/pwa/install-prompt.js",
+  "/assets/footer/site-footer.css",
+  "/assets/footer/site-footer.js",
+  "/assets/care/care-tools.js",
+  "/assets/care/care-background.css",
+  "/assets/brand-motion/hospital-care-background-v1.png",
   "/assets/logos/sehatline-animated.mp4",
   "/assets/logos/sehatline-logo-poster.png",
   "/assets/logos/sehatline-mark-frame.png"
@@ -21,7 +32,7 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))))
+      .then(keys => Promise.all(keys.filter(key => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME).map(key => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
