@@ -1919,7 +1919,11 @@ export async function startServer(options = {}) {
   const requestedPort = options.port ?? DEFAULT_PORT;
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(requestedPort, options.host || "127.0.0.1", resolve);
+   server.listen(
+  requestedPort,
+  options.host || process.env.HOST || "0.0.0.0",
+  resolve
+);
   });
   const address = server.address();
   const port = typeof address === "object" ? address.port : requestedPort;
