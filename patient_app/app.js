@@ -1940,7 +1940,7 @@ function openAuth(mode = state.authMode) {
         <div class="auth-privacy-note">${svg("shield")} We do not store raw Aadhaar numbers, face images or biometric templates.</div>
       </section>
     </div>`, true);
-  lockAuthModal();
+  lockAuthModal();==
   document.querySelector("#authPhone")?.focus();
 }
 
@@ -2168,10 +2168,10 @@ function openOtpStep() {
       ${state.authMode === "signup" ? authProgress(1) : ""}
       <span class="auth-step-icon">${svg("phone")}</span>
       <span class="eyebrow">Mobile verification</span>
-      <h2 class="auth-heading" id="modalTitle">Enter the 6-digit OTP</h2>
+      <h2 class="auth-heading" id="modalTitle">Enter the 4-digit OTP</h2>
       <p class="modal-subtitle">We sent a one-time code to +91 ${escapeHtml(phoneDigitsForInput(state.authPhone).replace(/(\d{5})(\d{5})/, "$1 $2"))}.</p>
       <div id="msg91Captcha" class="auth-captcha" aria-label="Security verification"></div>
-      <div class="field"><label for="authOtp">ONE-TIME PASSWORD</label><input class="auth-otp-input" id="authOtp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" /></div>
+      <div class="field"><label for="authOtp">ONE-TIME PASSWORD</label><input class="auth-otp-input" id="authOtp" inputmode="numeric" autocomplete="one-time-code" maxlength="4" placeholder="••••••" /></div>
       <button class="btn btn-primary btn-block auth-primary" data-action="verify-otp">Verify mobile</button>
       <button class="btn btn-ghost btn-block" data-action="auth-back">Change mobile number</button>
       <button class="btn btn-ghost btn-block auth-resend" data-action="resend-otp">Resend OTP</button>
