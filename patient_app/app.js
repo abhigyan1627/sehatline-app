@@ -2121,7 +2121,7 @@ async function requestOtpDelivery({ resend = false } = {}) {
       if (resend) {
   const result = await callOtpWidget(
     "retryOtp",
-    [null],
+    [11],
     state.otpWidgetRequestId
   );
 
