@@ -1935,12 +1935,11 @@ function openAuth(mode = state.authMode) {
           <div class="auth-phone-field"><span>+91</span><input id="authPhone" inputmode="numeric" autocomplete="tel-national" maxlength="10" placeholder="98765 43210" value="${escapeHtml(phoneDigitsForInput(state.authPhone))}" /></div>
         </div>
         ${isSignup ? `<label class="auth-consent"><input id="signupConsent" type="checkbox"><span>I agree to the Terms and Privacy Notice and consent to mobile verification. Aadhaar consent will be requested separately.</span></label>` : ""}
-        <div id="msg91Captcha" class="auth-captcha" aria-label="Security verification"></div>
         <button class="btn btn-primary btn-block auth-primary" data-action="send-otp">${svg("lock")} Continue securely</button>
         <div class="auth-privacy-note">${svg("shield")} We do not store raw Aadhaar numbers, face images or biometric templates.</div>
       </section>
     </div>`, true);
-  lockAuthModal();==
+  lockAuthModal();
   document.querySelector("#authPhone")?.focus();
 }
 
@@ -2006,7 +2005,6 @@ async function ensureOtpWidget() {
       widgetId: config.widgetId,
       tokenAuth: config.tokenAuth,
       exposeMethods: true,
-      captchaRenderId: "msg91Captcha",
       success: () => {},
       failure: () => {}
     });
@@ -2118,7 +2116,7 @@ async function requestOtpDelivery({ resend = false } = {}) {
         timeoutMs: 10_000
       });
     }
-    state.otpResendAvailableAt = Date.now() + 30_000;
+    state.otpResendAvailableAt = Date.now() + 10_000;
     if (resend) {
       toast("A fresh OTP was sent by SMS", "phone");
       if (button) {
@@ -2170,8 +2168,7 @@ function openOtpStep() {
       <span class="eyebrow">Mobile verification</span>
       <h2 class="auth-heading" id="modalTitle">Enter the 4-digit OTP</h2>
       <p class="modal-subtitle">We sent a one-time code to +91 ${escapeHtml(phoneDigitsForInput(state.authPhone).replace(/(\d{5})(\d{5})/, "$1 $2"))}.</p>
-      <div id="msg91Captcha" class="auth-captcha" aria-label="Security verification"></div>
-      <div class="field"><label for="authOtp">ONE-TIME PASSWORD</label><input class="auth-otp-input" id="authOtp" inputmode="numeric" autocomplete="one-time-code" maxlength="4" placeholder="••••••" /></div>
+      <div class="field"><label for="authOtp">ONE-TIME PASSWORD</label><input class="auth-otp-input" id="authOtp" inputmode="numeric" autocomplete="one-time-code" maxlength="4" placeholder="••••" /></div>
       <button class="btn btn-primary btn-block auth-primary" data-action="verify-otp">Verify mobile</button>
       <button class="btn btn-ghost btn-block" data-action="auth-back">Change mobile number</button>
       <button class="btn btn-ghost btn-block auth-resend" data-action="resend-otp">Resend OTP</button>
@@ -2591,9 +2588,9 @@ document.addEventListener("click", (event) => {
     "resend-otp": () => requestOtpDelivery({ resend: true }),
     "verify-otp": async () => {
       const otp = document.querySelector("#authOtp")?.value.trim() || "";
-      if (!/^\d{6}$/.test(otp)) {
+      if (!/^\d{4}$/.test(otp)) {
         window.SehatMotion?.shake(document.querySelector("#authOtp"));
-        toast("Enter the complete 6-digit OTP", "alert");
+        toast("Enter the complete 4-digit OTP", "alert");
         return;
       }
       const verifyButton = document.querySelector('[data-action="verify-otp"]');
