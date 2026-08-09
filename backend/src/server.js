@@ -1829,6 +1829,13 @@ async function serveStatic(request, response, url, uploadRoot) {
 if (pathname === "/robots.txt") {
   return sendFile(response, projectRoot, "robots.txt");
 }
+  if (pathname === "/about" || pathname === "/about/") {
+  return sendFile(response, projectRoot, "about.html");
+}
+
+if (pathname === "/contact" || pathname === "/contact/") {
+  return sendFile(response, projectRoot, "contact.html");
+}
   if (pathname.startsWith("/assets/")) {
     return sendFile(response, path.resolve(projectRoot, "assets"), pathname.slice("/assets/".length));
   }
