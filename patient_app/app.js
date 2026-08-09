@@ -2118,18 +2118,24 @@ async function requestOtpDelivery({ resend = false } = {}) {
   try {
     const config = await ensureOtpWidget();
     if (config.mode === "msg91-widget") {
-state.otpWidgetRequestId = "";
+      if (resend) {
+  const result = await callOtpWidget(
+    "retryOtp",
+    [null],
+    state.otpWidgetRequestId
+  );
 
-const result = await callOtpWidget(
-  "sendOtp",
-  [`91${digits}`]
-);
+  state.otpWidgetRequestId =
+    otpRequestId(result) || state.otpWidgetRequestId;
+} else {
+  state.otpWidgetRequestId = "";
 
-state.otpWidgetRequestId = otpRequestId(result);
+  const result = await callOtpWidget(
+    "sendOtp",
+    [`91${digits}`]
+  );
 
-if (!state.otpWidgetRequestId) {
-  throw new Error("MSG91 did not return a new OTP request ID");
-}
+  state.otpWidgetRequestId = otpRequestId(result);
 }
      
     } else {
