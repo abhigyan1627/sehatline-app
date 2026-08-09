@@ -2053,18 +2053,31 @@ function callOtpWidget(method, args = [], requestId = "") {
   });
 }
 
-function otpRequestId(result) {
-  if (!result || typeof result !== "object") return "";
-  return String(
-    result.reqId
-    || result.req_id
-    || result.requestId
-    || result.request_id
-    || result.data?.reqId
-    || result.data?.requestId
-    || ""
-  );
+ function otpRequestId(result) {
+  if (!result) return "";
+
+  if (typeof result === "string") {
+    return result.trim();
+  }
+
+  if (typeof result !== "object") return "";
+
+  const candidate =
+    result.reqId ||
+    result.req_id ||
+    result.requestId ||
+    result.request_id ||
+    result.data?.reqId ||
+    result.data?.req_id ||
+    result.data?.requestId ||
+    result.data?.request_id ||
+    result.message ||
+    result.data?.message ||
+    "";
+
+  return String(candidate || "").trim();
 }
+
 
 function otpAccessToken(result) {
   if (typeof result === "string") return result;
@@ -2105,10 +2118,26 @@ async function requestOtpDelivery({ resend = false } = {}) {
   try {
     const config = await ensureOtpWidget();
     if (config.mode === "msg91-widget") {
-      const result = resend
-        ? await callOtpWidget("retryOtp", [null], state.otpWidgetRequestId)
-        : await callOtpWidget("sendOtp", [`91${digits}`]);
-      state.otpWidgetRequestId = otpRequestId(result) || state.otpWidgetRequestId;
+      if (resend) {
+  const result = await callOtpWidget(
+    "retryOtp",
+    [null],
+    state.otpWidgetRequestId
+  );
+
+  state.otpWidgetRequestId =
+    otpRequestId(result) || state.otpWidgetRequestId;
+} else {
+  state.otpWidgetRequestId = "";
+
+  const result = await callOtpWidget(
+    "sendOtp",
+    [`91${digits}`]
+  );
+
+  state.otpWidgetRequestId = otpRequestId(result);
+}
+     
     } else {
       await apiRequest("/api/auth/send-otp", {
         method: "POST",
@@ -2146,7 +2175,7 @@ async function verifyOtpDelivery(otp) {
       timeoutMs: 10_000
     });
   }
-  const widgetResult = await callOtpWidget("verifyOtp", [otp], state.otpWidgetRequestId);
+  const widgetResult = await callOtpWidget("verifyOtp", [Number(otp)], state.otpWidgetRequestId);
   const accessToken = otpAccessToken(widgetResult);
   if (!accessToken) throw new Error("MSG91 did not return a verification token");
   return apiRequest("/api/auth/verify-widget-token", {
