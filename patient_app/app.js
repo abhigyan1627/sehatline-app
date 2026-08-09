@@ -2005,8 +2005,12 @@ async function ensureOtpWidget() {
       widgetId: config.widgetId,
       tokenAuth: config.tokenAuth,
       exposeMethods: true,
-      success: () => {},
-      failure: () => {}
+      success: (data) => {
+  console.log("MSG91 SUCCESS DATA:", data);
+},
+failure: (error) => {
+  console.error("MSG91 FAILURE DATA:", error);
+}
     });
     const startedAt = Date.now();
     while (typeof window.sendOtp !== "function") {
