@@ -487,6 +487,8 @@ function doctorFormFields(doctor = {}, mode = "create") {
     name: "photoIdName",
     url: "photoIdUrl"
   });
+  const paymentStatus = doctor.onboarding?.payment?.status || (doctor.applicationSource === "doctor-app" ? "pending" : "not-required");
+  const onboardingSchedule = doctor.onboarding?.schedule || {};
   const reviewSummary = mode === "create" ? `
     <div class="verification-note">
       <span class="verification-icon">✓</span>
@@ -496,6 +498,12 @@ function doctorFormFields(doctor = {}, mode = "create") {
       <div><span class="review-label">Application status</span><span class="badge ${status}">${status}</span></div>
       <div><span class="review-label">Application ID</span><strong>${escapeHtml(doctor.id || "—")}</strong></div>
       <div><span class="review-label">Last updated</span><strong>${escapeHtml(displayDate(doctor.updatedAt || doctor.createdAt || "")) || "—"}</strong></div>
+    </div>
+    <div class="onboarding-review-card">
+      <div><span class="review-label">Launch plan payment</span><span class="badge ${["paid", "not-required"].includes(paymentStatus) ? "verified" : "pending"}">${escapeHtml(paymentStatus.replace("-", " "))}</span></div>
+      <div><span class="review-label">Plan amount</span><strong>₹599 + GST · ₹706.82 total</strong></div>
+      <div><span class="review-label">Regular clinic hours</span><strong>${escapeHtml((onboardingSchedule.workingDays || []).map(day => String(day).slice(0, 3)).join(", ") || "Not submitted")} · ${escapeHtml(onboardingSchedule.startTime || "—")}–${escapeHtml(onboardingSchedule.endTime || "—")}</strong></div>
+      <div><span class="review-label">Patients per hour</span><strong>${escapeHtml(onboardingSchedule.patientsPerHour || "—")}</strong></div>
     </div>`;
 
   return `${reviewSummary}

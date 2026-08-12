@@ -138,6 +138,7 @@
     queueTimer: null,
     queueSyncTimer: null,
     schedule: null,
+    pendingApplication: null,
     lastFocused: null,
     dashboard: clone(emptyData.dashboard),
     appointments: clone(emptyData.appointments),
@@ -380,6 +381,7 @@
     const start = saved.startTime || "09:00";
     const end = saved.endTime || "17:00";
     const duration = saved.durationMinutes || 15;
+    const patientsPerHour = saved.patientsPerHour || Math.max(1, Math.round(60 / duration));
     const slots = saved.slots || [];
     const fullCapacity = calculatedTokenCapacity(start, end, duration);
     const dailyLimit = saved.maxDailyTokens || saved.capacity || fullCapacity;
@@ -392,7 +394,7 @@
           <label>Date<input name="date" type="date" min="${today}" value="${saved.date || today}" required></label>
           <label>Start<select name="startTime">${timeOptions(start)}</select></label>
           <label>End<select name="endTime">${timeOptions(end)}</select></label>
-          <label>Per patient<select name="durationMinutes">${[10, 15, 20, 30, 45, 60].map(value => `<option value="${value}" ${value === Number(duration) ? "selected" : ""}>${value} minutes</option>`).join("")}</select></label>
+          <label>Patients per hour<select name="patientsPerHour">${[1, 2, 3, 4, 6, 12].map(value => `<option value="${value}" ${value === Number(patientsPerHour) ? "selected" : ""}>${value} patient${value === 1 ? "" : "s"}</option>`).join("")}</select><small>Slots are generated automatically.</small></label>
           <label>Daily token limit<input name="maxDailyTokens" type="number" min="1" max="96" value="${dailyLimit}" required><small>Maximum tokens patients can book for this date.</small></label>
         </div>
         <div class="auto-slot-preview" id="auto-slot-preview">${slots.length ? `<strong>${saved.bookedCount || 0} issued · ${saved.remainingTokens ?? slots.length} remaining · ${slots.length} capacity</strong><small>${slots.slice(0, 6).map(slot => formatTimeValue(slot.time)).join(" · ")}${slots.length > 6 ? " · …" : ""}</small>` : `<strong>0 issued · ${dailyLimit} remaining · ${dailyLimit} capacity</strong><small>Capacity is calculated from hours and consultation duration.</small>`}</div>
@@ -401,7 +403,8 @@
     `, { modalClass: "schedule-setup-modal", focusSelector: "[name='date']" });
     const form = $("#daily-schedule-form");
     const refreshCapacity = () => {
-      const generated = calculatedTokenCapacity(form.elements.startTime.value, form.elements.endTime.value, form.elements.durationMinutes.value);
+      const durationMinutes = Math.max(5, Math.round(60 / Number(form.elements.patientsPerHour.value || 4)));
+      const generated = calculatedTokenCapacity(form.elements.startTime.value, form.elements.endTime.value, durationMinutes);
       const requested = Math.max(0, Math.min(generated, Number(form.elements.maxDailyTokens.value) || generated));
       form.elements.maxDailyTokens.max = String(Math.max(1, generated));
       $("#auto-slot-preview").innerHTML = `<strong>0 issued · ${requested} remaining · ${requested} capacity</strong><small>${generated} time slots fit in the selected working hours.</small>`;
@@ -444,6 +447,12 @@
       $("#dashboard-current-patient").textContent = state.queue.status === "closed" ? "Queue closed" : "Ready to begin";
     }
     $("#dashboard-waiting").textContent = state.queue.waiting.length;
+    const completed = state.appointments.filter(item => item.status === "completed").length;
+    const completion = state.appointments.length ? Math.round((completed / state.appointments.length) * 100) : 0;
+    $("#clinic-efficiency").textContent = `${completion}%`;
+    $("#clinic-efficiency-ring").setAttribute("aria-label", `Clinic completion ${completion} percent`);
+    $("#dashboard-average-wait").textContent = `${state.queue.averageMinutes || state.queue.expectedMinutes || 15}m`;
+    $("#dashboard-completed").textContent = String(completed);
   }
 
   function updateNavCounts() {
@@ -571,9 +580,9 @@
     if (state.patientSort === "visits") list.sort((a, b) => b.visits - a.visits);
 
     $("#patient-stats").innerHTML = `
-      <article class="patient-stat-card"><span>${icon("users")}</span><span><b>${escapeHTML(state.patients.length >= 100 ? state.patients.length : "1,284")}</b><small>Total patients</small></span></article>
-      <article class="patient-stat-card"><span>${icon("heart")}</span><span><b>64%</b><small>Repeat patients</small></span></article>
-      <article class="patient-stat-card"><span>${icon("calendar")}</span><span><b>18</b><small>Follow-ups due</small></span></article>
+      <article class="patient-stat-card"><span>${icon("users")}</span><span><b>${escapeHTML(state.patients.length)}</b><small>Total patients</small></span></article>
+      <article class="patient-stat-card"><span>${icon("heart")}</span><span><b>${escapeHTML(state.patients.filter(patient => Number(patient.visits) > 1).length)}</b><small>Repeat patients</small></span></article>
+      <article class="patient-stat-card"><span>${icon("calendar")}</span><span><b>${escapeHTML(state.patients.filter(patient => String(patient.status || "").includes("Follow")).length)}</b><small>Follow-ups due</small></span></article>
     `;
 
     $("#patient-table-body").innerHTML = list.map(patient => `
@@ -598,13 +607,13 @@
 
   function renderAnalytics(multiplier = 1) {
     const analytics = state.analytics;
-    const bookings = Math.round((Number(analytics.totalBookings) || 426) * multiplier);
+    const bookings = Math.round((Number(analytics.totalBookings) || 0) * multiplier);
     const metrics = [
-      { label: "Total bookings", value: bookings.toLocaleString("en-IN"), trend: "+12.4%", icon: "calendar" },
-      { label: "Repeat patients", value: analytics.repeatPatients || "64%", trend: "+9% benchmark", icon: "users" },
-      { label: "Revenue", value: analytics.revenue || "₹2.84L", trend: "+10.8%", icon: "rupee" },
-      { label: "Average rating", value: analytics.rating || "4.9", trend: "128 reviews", icon: "star" },
-      { label: "Cancellation rate", value: analytics.cancellationRate || "4.2%", trend: "−1.3%", icon: "chart" }
+      { label: "Total bookings", value: bookings.toLocaleString("en-IN"), trend: `${analytics.range || 30}-day view`, icon: "calendar" },
+      { label: "Repeat patients", value: analytics.repeatPatients || "0%", trend: "From real visits", icon: "users" },
+      { label: "Income", value: analytics.revenue || "₹0", trend: `Today ₹${Number(analytics.todayIncome || 0).toLocaleString("en-IN")}`, icon: "rupee" },
+      { label: "Average rating", value: analytics.rating || "0", trend: "Verified reviews only", icon: "star" },
+      { label: "Cancellation rate", value: analytics.cancellationRate || "0%", trend: "Live bookings", icon: "chart" }
     ];
     $("#analytics-metrics").innerHTML = metrics.map(metric => `
       <article class="analytics-metric">
@@ -694,6 +703,137 @@
     window.SehatMotion?.animateNumbers(activeView, ".metric-card b, .analytics-metric b, .queue-summary strong");
   }
 
+  function openDoctorApplicationOrResume() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("sl_doctor_application") || "null");
+      if (saved?.id && saved?.status === "payment-pending") {
+        state.pendingApplication = saved;
+        showDoctorApplicationConfirmation(saved);
+        return;
+      }
+    } catch {
+      // Start a fresh application when locally saved status cannot be read.
+    }
+    doctorApplicationModal();
+  }
+
+  function doctorLaunchPlanModal() {
+    const included = [
+      ["shield", "Owner-reviewed doctor profile", "Your licence, council and documents are manually reviewed before your profile can go live."],
+      ["users", "Patient discovery profile", "After approval, patients can find your speciality, clinic, fee, timings and available appointments."],
+      ["calendar", "Automatic appointment slots", "Choose working days, clinic hours and patients per hour; SehatLine creates bookable slots automatically."],
+      ["queue", "Daily live token queue", "Every clinic day starts from token T001, with live called, waiting, completed and remaining counts."],
+      ["chart", "Real practice dashboard", "See real bookings, completed consultations and income calculated from your actual appointment records."],
+      ["user", "Receptionist access", "Connect clinic staff to appointments and walk-in token handling without sharing the doctor login."],
+      ["phone", "Installable web app", "Add the Doctor Portal to your phone home screen and use it like an app from the browser."],
+      ["heart", "Launch onboarding support", "SehatLine owner support for initial profile, schedule and clinic-workspace setup."]
+    ];
+    const upcoming = [
+      ["play", "Video consultation", "Secure online consultation workflow."],
+      ["file", "Digital prescriptions", "Prescription creation and patient delivery."],
+      ["bell", "SMS & WhatsApp reminders", "Automated booking and follow-up alerts; provider charges may apply."],
+      ["rupee", "Online fee collection", "Patient payments, settlements and fee reports."],
+      ["location", "Multi-clinic management", "Different branches, timings, staff and queues."],
+      ["star", "Verified patient reviews", "Feedback only from completed consultations."]
+    ];
+
+    openModal(`
+      <div class="launch-plan-scroll">
+        <header class="launch-plan-hero">
+          <div class="launch-plan-heading">
+            <span class="offer-pill">LIMITED LAUNCH OFFER</span>
+            <span class="eyebrow">SehatLine Doctor Partner Plan</span>
+            <h2 id="modal-title">Start your verified digital clinic</h2>
+            <p>A transparent one-time onboarding plan for the first SehatLine doctors. Read what is live today, how approval works and what is still upcoming.</p>
+            <div class="launch-plan-assurances">
+              <span>${icon("check")} No auto-renewal</span>
+              <span>${icon("shield")} Manual verification</span>
+              <span>${icon("check")} GST invoice after payment</span>
+            </div>
+          </div>
+          <div class="launch-price-card" aria-label="Launch offer price">
+            <span>Regular onboarding</span>
+            <del>₹999 + GST</del>
+            <small>Launch price</small>
+            <strong>₹599 <em>+ 18% GST</em></strong>
+            <dl>
+              <div><dt>Plan fee</dt><dd>₹599.00</dd></div>
+              <div><dt>GST (18%)</dt><dd>₹107.82</dd></div>
+              <div class="launch-price-total"><dt>Total payable</dt><dd>₹706.82</dd></div>
+            </dl>
+            <b>One-time onboarding payment</b>
+          </div>
+        </header>
+
+        <main class="launch-plan-content">
+          <section class="launch-plan-section" aria-labelledby="included-title">
+            <div class="launch-section-heading">
+              <div><span class="eyebrow">AVAILABLE AFTER APPROVAL</span><h3 id="included-title">Included from day one</h3></div>
+              <p>These are the current working capabilities covered by the launch plan.</p>
+            </div>
+            <div class="plan-feature-grid">
+              ${included.map(([name, title, description]) => `
+                <article class="plan-feature-card"><span>${icon(name)}</span><div><h4>${title}</h4><p>${description}</p></div></article>
+              `).join("")}
+            </div>
+          </section>
+
+          <section class="launch-plan-section onboarding-journey" aria-labelledby="journey-title">
+            <div class="launch-section-heading">
+              <div><span class="eyebrow">HOW IT WORKS</span><h3 id="journey-title">Onboarding to go-live</h3></div>
+              <p>Payment does not bypass medical verification.</p>
+            </div>
+            <ol class="plan-timeline">
+              <li><i>1</i><div><b>Submit doctor details</b><small>Photo, registration number, council, speciality and clinic information.</small></div></li>
+              <li><i>2</i><div><b>Set clinic capacity</b><small>Select working days, timings and patients per hour for automatic slots.</small></div></li>
+              <li><i>3</i><div><b>Pay ₹706.82 securely</b><small>₹599 launch fee plus ₹107.82 GST through the configured payment gateway.</small></div></li>
+              <li><i>4</i><div><b>Owner verification</b><small>SehatLine checks the licence, documents and submitted clinic details.</small></div></li>
+              <li><i>5</i><div><b>Profile and workspace go live</b><small>Only after approval do patient listing, booking, queue and dashboard access activate.</small></div></li>
+            </ol>
+          </section>
+
+          <section class="launch-plan-section roadmap-section" aria-labelledby="roadmap-title">
+            <div class="launch-section-heading">
+              <div><span class="eyebrow">COMING SOON</span><h3 id="roadmap-title">Upcoming roadmap</h3></div>
+              <p>These features are planned, not included as live features today. Release dates and any separate charges will be announced before launch.</p>
+            </div>
+            <div class="roadmap-grid">
+              ${upcoming.map(([name, title, description]) => `
+                <article class="roadmap-card"><span>${icon(name)}</span><div><b>${title}</b><small>${description}</small></div><em>UPCOMING</em></article>
+              `).join("")}
+            </div>
+          </section>
+
+          <div class="plan-policy-faq-grid">
+            <section class="launch-plan-section policy-section" aria-labelledby="policy-title">
+              <div class="launch-section-heading"><div><span class="eyebrow">PLEASE READ</span><h3 id="policy-title">Important plan policy</h3></div></div>
+              <ul class="plan-policy-list">
+                <li>${icon("check")} This is a one-time onboarding charge with no automatic renewal.</li>
+                <li>${icon("check")} Payment covers onboarding, review and the currently listed clinic tools; it never guarantees approval.</li>
+                <li>${icon("check")} Your profile remains hidden until the SehatLine owner approves your credentials.</li>
+                <li>${icon("check")} Refund requests are reviewed only before document-verification work begins.</li>
+                <li>${icon("check")} Future paid tools will be separately disclosed and remain optional unless you opt in.</li>
+              </ul>
+            </section>
+
+            <section class="launch-plan-section faq-section" aria-labelledby="faq-title">
+              <div class="launch-section-heading"><div><span class="eyebrow">QUICK ANSWERS</span><h3 id="faq-title">Frequently asked</h3></div></div>
+              <details open><summary>Does payment guarantee approval?</summary><p>No. Approval happens only after your medical registration and documents pass owner review.</p></details>
+              <details><summary>When will patients see my profile?</summary><p>Only after the owner approves the application and activates your doctor workspace.</p></details>
+              <details><summary>Can I change timings and daily capacity?</summary><p>Yes. The Doctor Portal lets you publish the day’s hours and token capacity based on patients per hour.</p></details>
+              <details><summary>Are upcoming features included now?</summary><p>No. Only the “Included from day one” list is live under this plan. Roadmap items will be announced separately.</p></details>
+            </section>
+          </div>
+        </main>
+
+        <footer class="launch-plan-cta">
+          <div><b>Ready to join?</b><small>Application first · secure payment after submission · owner approval before go-live</small></div>
+          <div><button class="secondary-button" data-close-modal type="button">Back to login</button><button class="primary-button" data-start-doctor-application type="button">Start application ${icon("arrow")}</button></div>
+        </footer>
+      </div>
+    `, { modalClass: "application-modal launch-plan-modal", focusSelector: "[data-start-doctor-application]" });
+  }
+
   function doctorApplicationModal() {
     openModal(`
       <div class="application-scroll">
@@ -705,6 +845,10 @@
             <span>${icon("check")} Manual admin review</span>
             <span>${icon("shield")} Licence verification</span>
             <span>${icon("file")} Secure document links</span>
+          </div>
+          <div class="onboarding-plan-card" aria-label="Doctor launch plan">
+            <div><span class="offer-pill">LAUNCH OFFER</span><strong>Doctor onboarding plan</strong><small>Profile setup · verification review · live clinic tools</small><button class="text-button plan-details-link" data-view-launch-plan type="button">View full benefits, roadmap & policy ${icon("arrow")}</button></div>
+            <div class="plan-price"><del>₹999 + GST</del><b>₹599 <small>+ 18% GST</small></b><em>₹706.82 total · one-time</em></div>
           </div>
         </div>
 
@@ -820,6 +964,17 @@
                 <input id="application-languages" name="languages" maxlength="180" placeholder="Hindi, English" aria-describedby="application-languages-help" required>
                 <small id="application-languages-help">Separate multiple languages with commas.</small>
               </label>
+              <div class="application-field full onboarding-hours">
+                <span class="application-label">Your regular clinic timing <em aria-hidden="true">*</em></span>
+                <div class="working-day-options" role="group" aria-label="Regular working days">
+                  ${["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((day, index) => `<label><input type="checkbox" name="workingDays" value="${day}" ${index < 6 ? "checked" : ""}><span>${day.slice(0, 3)}</span></label>`).join("")}
+                </div>
+                <div class="application-field-grid compact-grid">
+                  <label class="application-field">Starts at<input name="startTime" type="time" value="09:00" required></label>
+                  <label class="application-field">Ends at<input name="endTime" type="time" value="17:00" required></label>
+                  <label class="application-field">Patients per hour<select name="patientsPerHour" required><option value="2">2 patients</option><option value="3">3 patients</option><option value="4" selected>4 patients</option><option value="6">6 patients</option><option value="12">12 patients</option></select><small>We create slots automatically.</small></label>
+                </div>
+              </div>
             </div>
           </fieldset>
 
@@ -868,6 +1023,10 @@
               <input id="application-declaration" name="declaration" type="checkbox" required>
               <span>I confirm that these details and documents belong to me and are accurate. I understand that my doctor profile will remain hidden until manual admin verification is complete.</span>
             </label>
+            <div class="plan-policy-box">
+              <strong>Launch plan policy</strong>
+              <ul><li>One-time payment with no automatic renewal.</li><li>Payment covers onboarding, profile setup and document review.</li><li>Payment does not guarantee approval; licence verification is mandatory.</li><li>GST invoice is issued after verified payment.</li><li>Refund requests are reviewed only before verification work starts.</li></ul>
+            </div>
           </fieldset>
 
           <p class="application-form-error" id="application-form-error" role="alert"></p>
@@ -919,6 +1078,16 @@
   function validateApplicationStep(form, step) {
     const section = $(`[data-application-step="${step}"]`, form);
     const fields = $$("input, select, textarea", section);
+    if (step === 3) {
+      const workingDays = $$('input[name="workingDays"]:checked', section);
+      const startTime = $('[name="startTime"]', section)?.value || "";
+      const endTime = $('[name="endTime"]', section)?.value || "";
+      if (!workingDays.length || !startTime || !endTime || endTime <= startTime) {
+        $("#application-form-error", form).textContent = "Choose at least one working day and a valid clinic start/end time.";
+        (workingDays.length ? $('[name="startTime"]', section) : $('input[name="workingDays"]', section))?.focus();
+        return false;
+      }
+    }
     const invalid = fields.find(field => !field.checkValidity());
     if (!invalid) {
       $("#application-form-error", form).textContent = "";
@@ -948,7 +1117,8 @@
   }
 
   function buildDoctorApplicationPayload(form) {
-    const data = Object.fromEntries(new FormData(form).entries());
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
     const phone = String(data.phone || "").replace(/\D/g, "");
     const languages = String(data.languages || "").split(",").map(value => value.trim()).filter(Boolean);
     const documents = {
@@ -1002,6 +1172,14 @@
         documents,
         declarationAcceptedAt: new Date().toISOString()
       },
+      onboarding: {
+        schedule: {
+          workingDays: formData.getAll("workingDays"),
+          startTime: String(data.startTime || "09:00"),
+          endTime: String(data.endTime || "17:00"),
+          patientsPerHour: Number(data.patientsPerHour) || 4
+        }
+      },
       applicationSource: "doctor-app",
       appliedAt: new Date().toISOString(),
       status: "pending",
@@ -1020,7 +1198,7 @@
         signal: controller.signal
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || body.message || `Application API ${response.status}`);
+      if (!response.ok) throw new Error(body?.error?.message || body.message || `Application API ${response.status}`);
       return body.data || body;
     } finally {
       clearTimeout(timeout);
@@ -1029,8 +1207,18 @@
 
   function showDoctorApplicationConfirmation(application) {
     const reference = application.id || application.applicationId || application.referenceId || "Pending assignment";
+    const paid = application.onboarding?.payment?.status === "paid" || application.paymentStatus === "paid";
+    state.pendingApplication = { ...application, id: reference };
     try {
-      localStorage.setItem("sl_doctor_application", JSON.stringify({ id: reference, status: "pending", at: Date.now() }));
+      localStorage.setItem("sl_doctor_application", JSON.stringify({
+        id: reference,
+        phone: application.phone || "",
+        name: application.name || "",
+        email: application.email || "",
+        status: paid ? "pending-review" : "payment-pending",
+        paymentStatus: paid ? "paid" : "pending",
+        at: Date.now()
+      }));
     } catch {
       // The confirmation remains available even when local storage is blocked.
     }
@@ -1038,20 +1226,94 @@
       <div class="application-scroll">
         <div class="application-success" role="status" aria-live="polite">
           <span class="application-success-mark" aria-hidden="true">${icon("check")}</span>
-          <span class="eyebrow">Application received</span>
-          <h2 id="modal-title">Your verification is pending</h2>
-          <p>Our admin team will check your medical registration, issuing council and supporting documents. Your profile will not appear in the Patient App until it is manually approved.</p>
+          <span class="eyebrow">${paid ? "Payment verified" : "Final onboarding step"}</span>
+          <h2 id="modal-title">${paid ? "Your verification is pending" : "Complete the launch payment"}</h2>
+          <p>${paid ? "Our admin team will check your medical registration, issuing council and supporting documents. Your profile will not appear in the Patient App until it is manually approved." : "Your application is saved. Pay the one-time launch offer securely to place it in the owner's verification queue."}</p>
           <div class="application-reference">Reference: ${escapeHTML(reference)}</div>
           <ol class="application-review-timeline" aria-label="Verification process">
-            <li>Documents received</li>
+            <li>${paid ? "Payment verified" : "Application saved"}</li>
             <li>Licence review</li>
             <li>Admin decision</li>
           </ol>
-          <button class="primary-button" type="button" data-application-done>Back to sign in</button>
+          ${paid ? `<button class="primary-button" type="button" data-application-done>Back to sign in</button>` : `
+            <div class="confirmation-payment-card"><span><del>₹999 + GST</del><b>₹599 + GST</b><small>₹706.82 payable · UPI, card or net banking</small></span><button class="primary-button" type="button" data-pay-onboarding>${icon("shield")} Pay securely</button></div>
+            <button class="secondary-button" type="button" data-application-done>Pay later</button>`}
         </div>
       </div>
     `;
     requestAnimationFrame(() => $("[data-application-done]", $("#modal"))?.focus());
+  }
+
+  async function loadRazorpayCheckout() {
+    if (window.Razorpay) return;
+    await new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
+      if (existing) {
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener("error", () => reject(new Error("Secure checkout could not be loaded")), { once: true });
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("Secure checkout could not be loaded"));
+      document.head.append(script);
+    });
+  }
+
+  async function startOnboardingPayment(button) {
+    const application = state.pendingApplication;
+    if (!application?.id || !application?.phone) {
+      showToast("Application details missing", "Open the application again and continue payment.", "error");
+      return;
+    }
+    setButtonLoading(button, true, "Opening secure payment…");
+    try {
+      const [orderResult] = await Promise.all([
+        apiRequest("/api/doctor/onboarding/payment/order", {
+          method: "POST",
+          body: JSON.stringify({ doctorId: application.id, phone: application.phone })
+        }, null),
+        loadRazorpayCheckout()
+      ]);
+      const order = orderResult.data;
+      if (!order?.orderId || !window.Razorpay) throw new Error("Payment gateway is unavailable");
+      const checkout = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: "SehatLine Healthcare",
+        description: "Doctor Launch Plan · ₹599 + GST",
+        order_id: order.orderId,
+        prefill: order.prefill,
+        theme: { color: "#00a977" },
+        modal: { confirm_close: true },
+        handler: async paymentResponse => {
+          try {
+            await apiRequest("/api/doctor/onboarding/payment/verify", {
+              method: "POST",
+              body: JSON.stringify({ doctorId: application.id, ...paymentResponse })
+            }, null);
+            application.onboarding = { ...(application.onboarding || {}), payment: { status: "paid" } };
+            showDoctorApplicationConfirmation(application);
+            showToast("Payment verified", "Your application is now ready for owner review.");
+          } catch (error) {
+            setButtonLoading(button, false);
+            showToast("Payment verification failed", error.message, "error");
+          }
+        }
+      });
+      checkout.on("payment.failed", response => {
+        setButtonLoading(button, false);
+        showToast("Payment was not completed", response?.error?.description || "You can retry securely.", "error");
+      });
+      setButtonLoading(button, false);
+      checkout.open();
+    } catch (error) {
+      setButtonLoading(button, false);
+      showToast("Payment setup required", error.message, "error");
+    }
   }
 
   function openModal(content, options = {}) {
@@ -1376,7 +1638,8 @@
       $(".demo-hint")?.remove();
     }
 
-    $("#open-doctor-application")?.addEventListener("click", doctorApplicationModal);
+    $("#open-doctor-plan")?.addEventListener("click", doctorLaunchPlanModal);
+    $("#open-doctor-application")?.addEventListener("click", openDoctorApplicationOrResume);
 
     $("#phone").addEventListener("input", event => {
       const digits = event.target.value.replace(/\D/g, "").slice(0, 10);
@@ -1775,6 +2038,9 @@
     $("#modal-content").addEventListener("click", async event => {
       if (event.target.closest("[data-close-modal]")) closeModal();
 
+      if (event.target.closest("[data-view-launch-plan]")) doctorLaunchPlanModal();
+      if (event.target.closest("[data-start-doctor-application]")) openDoctorApplicationOrResume();
+
       const applicationNext = event.target.closest("[data-application-next]");
       if (applicationNext) {
         const form = applicationNext.closest("#doctor-application-form");
@@ -1792,6 +2058,9 @@
         closeModal();
         $("#phone")?.focus();
       }
+
+      const paymentButton = event.target.closest("[data-pay-onboarding]");
+      if (paymentButton) await startOnboardingPayment(paymentButton);
 
       const locationButton = event.target.closest("[data-application-location]");
       if (locationButton) {
@@ -1855,7 +2124,7 @@
         try {
           const result = await apiRequest("/api/doctor/schedule", {
             method: "PUT",
-            body: JSON.stringify({ ...fields, durationMinutes: Number(fields.durationMinutes), maxDailyTokens: Number(fields.maxDailyTokens), breakMinutes: 0 })
+            body: JSON.stringify({ ...fields, patientsPerHour: Number(fields.patientsPerHour), durationMinutes: Math.max(5, Math.round(60 / Number(fields.patientsPerHour || 4))), maxDailyTokens: Number(fields.maxDailyTokens), breakMinutes: 0 })
           }, null);
           if (result.fallback || !result.data) throw new Error("Schedule API is unavailable");
           state.schedule = result.data;

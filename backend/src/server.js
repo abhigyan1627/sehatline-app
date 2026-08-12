@@ -2,7 +2,7 @@ import http from "node:http";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { JsonStore, MongoStore } from "./store.js";
 import { connectDatabase } from "./config/database.js";
 import { AdminAuthService, adminErrorPayload } from "./admin-auth.js";
@@ -48,6 +48,28 @@ const msg91WidgetToken = String(process.env.MSG91_WIDGET_TOKEN || "").trim();
 const msg91SendOtpConfigured = Boolean(msg91AuthKey && msg91TemplateId);
 const msg91WidgetConfigured = Boolean(msg91AuthKey && msg91WidgetId && msg91WidgetToken);
 const otpSendTimes = new Map();
+const razorpayKeyId = String(process.env.RAZORPAY_KEY_ID || "").trim();
+const razorpayKeySecret = String(process.env.RAZORPAY_KEY_SECRET || "").trim();
+const razorpayWebhookSecret = String(process.env.RAZORPAY_WEBHOOK_SECRET || "").trim();
+const DOCTOR_LAUNCH_PLAN = Object.freeze({
+  id: "doctor-launch-599",
+  name: "SehatLine Doctor Launch Plan",
+  regularPrice: 999,
+  offerPrice: 599,
+  gstRate: 18,
+  gstAmount: 107.82,
+  total: 706.82,
+  amountPaise: 70682,
+  currency: "INR",
+  billing: "one-time",
+  policy: [
+    "One-time onboarding charge; there is no automatic renewal.",
+    "Payment covers profile setup, document review and clinic onboarding.",
+    "Payment does not guarantee approval. Medical credentials must pass owner verification.",
+    "A GST invoice is issued after a verified payment.",
+    "Refund requests are reviewed only before document verification work starts."
+  ]
+});
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -74,6 +96,10 @@ const apiReference = {
     "GET|PUT|PATCH|DELETE /api/doctors/:id",
     "POST /api/doctors/:id/verify",
     "POST /api/doctors/:id/reject",
+    "GET /api/doctor/onboarding/plan",
+    "POST /api/doctor/onboarding/payment/order",
+    "POST /api/doctor/onboarding/payment/verify",
+    "POST /api/payments/razorpay/webhook",
     "GET|POST /api/labs",
     "GET|PUT|PATCH /api/labs/:id",
     "POST /api/labs/:id/verify",
@@ -93,6 +119,7 @@ const apiReference = {
     "GET|PUT /api/doctor/profile",
     "GET|POST /api/doctor/appointments",
     "GET /api/doctor/dashboard",
+    "GET|PUT /api/doctor/schedule",
     "GET|POST|PATCH /api/doctor/queue",
     "GET /api/doctor/patients",
     "GET /api/doctor/analytics"
@@ -129,6 +156,66 @@ async function providerJson(response) {
   } catch {
     return { message: text };
   }
+}
+
+function secureHexEqual(left, right) {
+  const first = Buffer.from(String(left || ""), "utf8");
+  const second = Buffer.from(String(right || ""), "utf8");
+  return first.length === second.length && timingSafeEqual(first, second);
+}
+
+async function createRazorpayOrder(doctor, gateway, providerFetch = fetch) {
+  const receipt = `sl-${String(doctor.id).replace(/[^a-z0-9_-]/gi, "").slice(-24)}-${Date.now()}`.slice(0, 40);
+  const response = await providerFetch("https://api.razorpay.com/v1/orders", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${gateway.keyId}:${gateway.keySecret}`).toString("base64")}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      amount: DOCTOR_LAUNCH_PLAN.amountPaise,
+      currency: DOCTOR_LAUNCH_PLAN.currency,
+      receipt,
+      notes: { doctorId: doctor.id, planId: DOCTOR_LAUNCH_PLAN.id }
+    })
+  });
+  const payload = await providerJson(response);
+  if (!response.ok || !payload.id) {
+    throw Object.assign(new Error(firstText(payload?.error?.description, payload?.message, "Payment order could not be created")), { statusCode: 502 });
+  }
+  return { ...payload, receipt };
+}
+
+async function fetchRazorpayPayment(paymentId, gateway, providerFetch = fetch) {
+  const response = await providerFetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+    headers: { Authorization: `Basic ${Buffer.from(`${gateway.keyId}:${gateway.keySecret}`).toString("base64")}` }
+  });
+  const payload = await providerJson(response);
+  if (!response.ok || !payload.id) {
+    throw Object.assign(new Error(firstText(payload?.error?.description, payload?.message, "Payment status could not be confirmed")), { statusCode: 502 });
+  }
+  return payload;
+}
+
+function verifyRazorpayPaymentSignature(orderId, paymentId, signature, keySecret = razorpayKeySecret) {
+  const expected = createHmac("sha256", keySecret).update(`${orderId}|${paymentId}`).digest("hex");
+  return secureHexEqual(expected, signature);
+}
+
+function normalizeOnboardingSchedule(input = {}) {
+  const allowedDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const workingDays = asArray(input.workingDays).filter(day => allowedDays.includes(day));
+  const startTime = String(input.startTime || "09:00");
+  const endTime = String(input.endTime || "17:00");
+  const patientsPerHour = Math.max(1, Math.min(12, Number(input.patientsPerHour) || 4));
+  const durationMinutes = Math.max(5, Math.round(60 / patientsPerHour));
+  return {
+    workingDays: workingDays.length ? workingDays : ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    startTime,
+    endTime,
+    patientsPerHour,
+    durationMinutes
+  };
 }
 
 async function sendMsg91Otp(phone) {
@@ -426,6 +513,9 @@ function missingDoctorVerificationFields(doctor) {
   if (doctor.applicationSource === "doctor-app" && !hasText(doctor.declarationAcceptedAt)) {
     missing.push("declarationAcceptedAt");
   }
+  if (doctor.applicationSource === "doctor-app" && doctor.onboarding?.payment?.status !== "paid") {
+    missing.push("onboarding.payment.status");
+  }
   return missing;
 }
 
@@ -616,7 +706,7 @@ function bearerToken(request) {
 }
 
 function ensureDoctorQueue(database, doctorId, date = new Date().toISOString().slice(0, 10)) {
-  database.queues ||= {};
+  if (!database.queues || Array.isArray(database.queues)) database.queues = {};
   const queue = database.queues[doctorId] ||= {
     doctorId,
     date,
@@ -632,8 +722,21 @@ function ensureDoctorQueue(database, doctorId, date = new Date().toISOString().s
     updatedAt: new Date().toISOString()
   };
   if (queue.date !== date) {
-    Object.assign(queue, { date, status: "closed", issued: 0, currentToken: "—", current: null, waiting: [] });
+    const schedule = database.doctorSchedules?.[doctorId]?.[date];
+    Object.assign(queue, {
+      date,
+      status: "closed",
+      capacity: Number(schedule?.capacity || 0),
+      issued: 0,
+      currentToken: "—",
+      current: null,
+      waiting: [],
+      seen: 0,
+      delayMinutes: 0,
+      updatedAt: new Date().toISOString()
+    });
   }
+  queue.remaining = Math.max(0, Number(queue.capacity || 0) - Number(queue.issued || 0));
   return queue;
 }
 
@@ -651,6 +754,78 @@ function scheduleSlots(startTime, endTime, durationMinutes, capacity) {
     slots.push({ time: `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`, available: true });
   }
   return slots;
+}
+
+function doctorWorkspaceFor(database, doctorId) {
+  database.doctorWorkspaces ||= {};
+  if (!database.doctorWorkspaces[doctorId]) {
+    const legacy = database.doctorWorkspace?.doctorId === doctorId ? database.doctorWorkspace : null;
+    const doctor = database.doctors.find(item => item.id === doctorId) || {};
+    const onboardingSchedule = normalizeOnboardingSchedule(doctor.onboarding?.schedule || {});
+    database.doctorWorkspaces[doctorId] = {
+      doctorId,
+      appointments: Array.isArray(legacy?.appointments) ? legacy.appointments : [],
+      patients: Array.isArray(legacy?.patients) ? legacy.patients : [],
+      profile: {
+        name: doctor.name || "Doctor",
+        specialty: doctor.specialty || "",
+        specialisation: doctor.specialty || "",
+        registrationNumber: doctor.registrationNumber || "",
+        qualification: doctor.qualification || "",
+        experience: doctor.experience || 0,
+        languages: doctor.languages || [],
+        clinic: doctor.clinic || "",
+        address: doctor.address || "",
+        services: [{ id: "consultation", name: "Clinic consultation", fee: numeric(doctor.fee), duration: `${onboardingSchedule.durationMinutes} min` }],
+        availability: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map(day => ({
+          day,
+          enabled: onboardingSchedule.workingDays.includes(day),
+          from: onboardingSchedule.startTime,
+          to: onboardingSchedule.endTime
+        })),
+        holidays: [],
+        ...(legacy?.profile || {})
+      },
+      analytics: legacy?.analytics || {},
+      schedules: Array.isArray(legacy?.schedules) ? legacy.schedules : []
+    };
+  }
+  return database.doctorWorkspaces[doctorId];
+}
+
+function doctorBookings(database, doctorId) {
+  return database.bookings.filter(item => item.doctorId === doctorId);
+}
+
+function doctorIncomeSnapshot(database, doctorId, date = new Date().toISOString().slice(0, 10), rangeDays = 30) {
+  const bookings = doctorBookings(database, doctorId);
+  const active = bookings.filter(item => !["cancelled", "rejected", "no-show"].includes(String(item.status || "").toLowerCase()));
+  const completed = active.filter(item => String(item.status || "").toLowerCase() === "completed");
+  const cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - Math.max(0, Number(rangeDays) - 1));
+  const inRange = active.filter(item => {
+    const value = new Date(`${item.date || ""}T12:00:00`);
+    return !Number.isNaN(value.valueOf()) && value >= cutoff;
+  });
+  const todayBookings = active.filter(item => item.date === date);
+  const uniquePatients = new Set(active.map(item => item.patientId || phoneDigits(item.patientPhone) || item.patientName).filter(Boolean));
+  const totalIncome = completed.reduce((sum, item) => sum + numeric(item.amount), 0);
+  const todayIncome = completed.filter(item => item.date === date).reduce((sum, item) => sum + numeric(item.amount), 0);
+  const rangeIncome = inRange.filter(item => String(item.status || "").toLowerCase() === "completed").reduce((sum, item) => sum + numeric(item.amount), 0);
+  return {
+    date,
+    totalBookings: active.length,
+    todayAppointments: todayBookings.length,
+    totalPatients: uniquePatients.size,
+    completedToday: completed.filter(item => item.date === date).length,
+    pendingToday: todayBookings.filter(item => ["pending", "confirmed", "checked-in"].includes(String(item.status || "").toLowerCase())).length,
+    totalIncome,
+    todayIncome,
+    rangeIncome,
+    rangeDays: Number(rangeDays) || 30,
+    currency: "INR"
+  };
 }
 
 async function readJson(request) {
@@ -671,6 +846,17 @@ async function readJson(request) {
     error.statusCode = 400;
     throw error;
   }
+}
+
+async function readText(request) {
+  let body = "";
+  for await (const chunk of request) {
+    body += chunk;
+    if (Buffer.byteLength(body) > MAX_BODY_BYTES) {
+      throw Object.assign(new Error("Request body is too large"), { statusCode: 413 });
+    }
+  }
+  return body;
 }
 
 function listDoctors(database, searchParams) {
@@ -770,7 +956,7 @@ function fallbackRecommendation({ query = "", doctors = [], labs = [] }) {
   };
 }
 
-function updateQueue(queue, action, payload, database) {
+function updateQueue(queue, action, payload, database, workspace = doctorWorkspaceFor(database, queue.doctorId)) {
   const now = new Date().toISOString();
   if (["start", "resume"].includes(action)) queue.status = "live";
   if (action === "pause") queue.status = "paused";
@@ -780,15 +966,19 @@ function updateQueue(queue, action, payload, database) {
   if (action === "next") {
     const previous = queue.current;
     if (previous?.appointmentId) {
-      const appointment = database.doctorWorkspace.appointments.find(item => item.id === previous.appointmentId);
+      const appointment = workspace.appointments.find(item => item.id === previous.appointmentId);
       if (appointment) appointment.status = "completed";
+      const booking = database.bookings.find(item => item.id === previous.appointmentId && item.doctorId === queue.doctorId);
+      if (booking) booking.status = "completed";
     }
     queue.current = queue.waiting.shift() || null;
     queue.currentToken = queue.current?.token || "—";
     queue.seen = numeric(queue.seen) + (previous ? 1 : 0);
     if (queue.current?.appointmentId) {
-      const appointment = database.doctorWorkspace.appointments.find(item => item.id === queue.current.appointmentId);
+      const appointment = workspace.appointments.find(item => item.id === queue.current.appointmentId);
       if (appointment) appointment.status = "in-progress";
+      const booking = database.bookings.find(item => item.id === queue.current.appointmentId && item.doctorId === queue.doctorId);
+      if (booking) booking.status = "in-progress";
     }
     queue.waiting = queue.waiting.map((item, index) => ({ ...item, wait: Math.max(0, numeric(queue.expectedMinutes, 15) * (index + 1) + numeric(queue.delayMinutes)) }));
   }
@@ -800,6 +990,7 @@ function updateQueue(queue, action, payload, database) {
       icon: "activity"
     }));
   }
+  queue.remaining = Math.max(0, Number(queue.capacity || 0) - Number(queue.issued || 0));
   queue.updatedAt = now;
   return queue;
 }
@@ -811,14 +1002,38 @@ async function routeApi(request, response, url, store, runtime = {}) {
   const providerFetch = runtime.providerFetch || fetch;
   const useIdentitySandbox = runtime.identitySandboxEnabled ?? identitySandboxEnabled;
   const useOtpSandbox = runtime.otpSandboxEnabled ?? otpSandboxEnabled;
+  const paymentGateway = {
+    keyId: String(runtime.razorpayKeyId ?? razorpayKeyId).trim(),
+    keySecret: String(runtime.razorpayKeySecret ?? razorpayKeySecret).trim(),
+    webhookSecret: String(runtime.razorpayWebhookSecret ?? razorpayWebhookSecret).trim()
+  };
+  const paymentGatewayConfigured = Boolean(paymentGateway.keyId && paymentGateway.keySecret);
   const adminAuth = runtime.adminAuth;
   const doctorSessions = runtime.doctorSessions;
+  const patientSessions = runtime.patientSessions;
+  const requirePatient = () => {
+    const patientId = patientSessions.get(bearerToken(request));
+    if (!patientId) throw Object.assign(new Error("Patient login required"), { statusCode: 401, code: "PATIENT_AUTH_REQUIRED" });
+    return patientId;
+  };
 
   const requireDoctor = () => {
     const doctorId = doctorSessions.get(bearerToken(request));
     if (!doctorId) throw Object.assign(new Error("Doctor login required"), { statusCode: 401 });
     return doctorId;
   };
+
+  if (runtime.requirePatientAuth && ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    const protectedPatientPath = pathname === "/api/users"
+      || pathname === "/api/reports"
+      || pathname === "/api/bookings"
+      || pathname === "/api/appointments"
+      || /^\/api\/(bookings|appointments)\/[^/]+$/.test(pathname);
+    if (protectedPatientPath) requirePatient();
+  }
+  if (runtime.requireDoctorAuth && pathname.startsWith("/api/doctor/") && !pathname.startsWith("/api/doctor/request-otp") && !pathname.startsWith("/api/doctor/verify-otp")) {
+    requireDoctor();
+  }
 
   if (method === "OPTIONS") {
     sendJson(response, 204, null);
@@ -987,6 +1202,104 @@ async function routeApi(request, response, url, store, runtime = {}) {
     return true;
   }
 
+  if (pathname === "/api/doctor/onboarding/plan" && method === "GET") {
+    sendJson(response, 200, { ...DOCTOR_LAUNCH_PLAN, gateway: "razorpay", paymentConfigured: paymentGatewayConfigured });
+    return true;
+  }
+  if (pathname === "/api/doctor/onboarding/payment/order" && method === "POST") {
+    if (!paymentGatewayConfigured) {
+      sendError(response, 503, "Live payment gateway is not configured", ["Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to .env.local"]);
+      return true;
+    }
+    const input = await readJson(request);
+    const doctor = database.doctors.find(item => item.id === String(input.doctorId || ""));
+    if (!doctor || phoneDigits(doctor.phone) !== phoneDigits(input.phone)) {
+      sendError(response, 404, "Doctor application was not found");
+      return true;
+    }
+    if (doctor.onboarding?.payment?.status === "paid") {
+      sendError(response, 409, "This onboarding plan is already paid");
+      return true;
+    }
+    const order = await createRazorpayOrder(doctor, paymentGateway, providerFetch);
+    await store.mutate(data => {
+      const saved = data.doctors.find(item => item.id === doctor.id);
+      saved.onboarding ||= {};
+      saved.onboarding.payment = {
+        ...(saved.onboarding.payment || {}),
+        status: "order-created",
+        gateway: "razorpay",
+        planId: DOCTOR_LAUNCH_PLAN.id,
+        orderId: order.id,
+        receipt: order.receipt,
+        amountPaise: DOCTOR_LAUNCH_PLAN.amountPaise,
+        currency: DOCTOR_LAUNCH_PLAN.currency,
+        orderCreatedAt: new Date().toISOString()
+      };
+    });
+    sendJson(response, 201, {
+      keyId: paymentGateway.keyId,
+      orderId: order.id,
+      amount: DOCTOR_LAUNCH_PLAN.amountPaise,
+      currency: DOCTOR_LAUNCH_PLAN.currency,
+      plan: DOCTOR_LAUNCH_PLAN,
+      prefill: { name: doctor.name, email: doctor.email, contact: doctor.phone }
+    });
+    return true;
+  }
+  if (pathname === "/api/doctor/onboarding/payment/verify" && method === "POST") {
+    if (!paymentGatewayConfigured) { sendError(response, 503, "Live payment gateway is not configured"); return true; }
+    const input = await readJson(request);
+    const doctor = database.doctors.find(item => item.id === String(input.doctorId || ""));
+    const payment = doctor?.onboarding?.payment;
+    const orderId = String(payment?.orderId || "");
+    const paymentId = String(input.razorpay_payment_id || "");
+    const suppliedOrderId = String(input.razorpay_order_id || "");
+    const signature = String(input.razorpay_signature || "");
+    if (!doctor || !orderId || orderId !== suppliedOrderId || !paymentId || !verifyRazorpayPaymentSignature(orderId, paymentId, signature, paymentGateway.keySecret)) {
+      sendError(response, 401, "Payment verification failed");
+      return true;
+    }
+    const providerPayment = await fetchRazorpayPayment(paymentId, paymentGateway, providerFetch);
+    if (providerPayment.order_id !== orderId
+      || Number(providerPayment.amount) !== DOCTOR_LAUNCH_PLAN.amountPaise
+      || String(providerPayment.currency) !== DOCTOR_LAUNCH_PLAN.currency
+      || providerPayment.status !== "captured") {
+      sendError(response, 409, "Payment is verified but has not been captured yet");
+      return true;
+    }
+    const paidAt = new Date().toISOString();
+    await store.mutate(data => {
+      const saved = data.doctors.find(item => item.id === doctor.id);
+      saved.onboarding.payment = { ...saved.onboarding.payment, status: "paid", paymentId, paidAt, verifiedAt: paidAt };
+    });
+    sendJson(response, 200, { verified: true, status: "paid", paymentId, paidAt, applicationId: doctor.id });
+    return true;
+  }
+  if (pathname === "/api/payments/razorpay/webhook" && method === "POST") {
+    if (!paymentGateway.webhookSecret) { sendError(response, 503, "Payment webhook is not configured"); return true; }
+    const rawBody = await readText(request);
+    const suppliedSignature = String(request.headers["x-razorpay-signature"] || "");
+    const expectedSignature = createHmac("sha256", paymentGateway.webhookSecret).update(rawBody).digest("hex");
+    if (!secureHexEqual(expectedSignature, suppliedSignature)) { sendError(response, 401, "Invalid payment webhook signature"); return true; }
+    const event = JSON.parse(rawBody || "{}");
+    const paymentEntity = event?.payload?.payment?.entity || {};
+    const orderId = String(paymentEntity.order_id || "");
+    if (["payment.captured", "order.paid"].includes(event.event) && orderId) {
+      await store.mutate(data => {
+        const saved = data.doctors.find(item => item.onboarding?.payment?.orderId === orderId);
+        if (saved
+          && Number(paymentEntity.amount) === DOCTOR_LAUNCH_PLAN.amountPaise
+          && String(paymentEntity.currency) === DOCTOR_LAUNCH_PLAN.currency
+          && paymentEntity.status === "captured") {
+          saved.onboarding.payment = { ...saved.onboarding.payment, status: "paid", paymentId: paymentEntity.id || saved.onboarding.payment.paymentId, paidAt: new Date().toISOString(), webhookVerified: true };
+        }
+      });
+    }
+    sendJson(response, 200, { received: true });
+    return true;
+  }
+
   if (pathname === "/api/doctors" && method === "GET") {
     sendJson(response, 200, listDoctors(database, searchParams));
     return true;
@@ -994,8 +1307,15 @@ async function routeApi(request, response, url, store, runtime = {}) {
   if (pathname === "/api/doctors" && method === "POST") {
     const input = await readJson(request);
     const now = new Date().toISOString();
+    const duplicate = database.doctors.find(item => phoneDigits(item.phone) === phoneDigits(input.phone)
+      || (firstText(input.registrationNumber, input.licenseNumber) && String(item.registrationNumber || "").toLowerCase() === String(firstText(input.registrationNumber, input.licenseNumber)).toLowerCase()));
+    if (duplicate) {
+      sendError(response, 409, "A doctor application already exists for this mobile number or registration number", { applicationId: duplicate.id, status: duplicate.status });
+      return true;
+    }
     const profileInput = sanitizeDoctorProfileInput(input);
     const declarationAcceptedAt = firstText(input.verification?.declarationAcceptedAt, input.declarationAcceptedAt);
+    const onboardingSchedule = normalizeOnboardingSchedule(input.onboarding?.schedule || input.schedule || {});
     const doctor = normalizeDoctor({
       ...profileInput,
       ...(declarationAcceptedAt ? { declarationAcceptedAt } : {}),
@@ -1006,6 +1326,16 @@ async function routeApi(request, response, url, store, runtime = {}) {
       verification: {
         status: "pending",
         submittedAt: now
+      },
+      onboarding: {
+        schedule: onboardingSchedule,
+        payment: {
+          status: "pending",
+          gateway: "razorpay",
+          planId: DOCTOR_LAUNCH_PLAN.id,
+          amountPaise: DOCTOR_LAUNCH_PLAN.amountPaise,
+          currency: DOCTOR_LAUNCH_PLAN.currency
+        }
       }
     });
     await store.mutate(data => data.doctors.unshift(doctor));
@@ -1091,10 +1421,16 @@ async function routeApi(request, response, url, store, runtime = {}) {
       delete doctor.rejectedAt;
       delete doctor.rejectedBy;
       delete doctor.rejectionReason;
+      doctorWorkspaceFor(data, doctor.id);
       updated = doctor;
     });
     if (!updated) sendError(response, 404, "Doctor not found");
-    else if (updated.validationError) sendError(response, 422, "Doctor profile is incomplete", updated.validationError);
+    else if (updated.validationError) sendError(
+      response,
+      422,
+      updated.validationError.includes("onboarding.payment.status") ? "Verified launch plan payment is required before approval" : "Doctor profile is incomplete",
+      updated.validationError
+    );
     else sendJson(response, 200, updated);
     return true;
   }
@@ -1216,7 +1552,17 @@ async function routeApi(request, response, url, store, runtime = {}) {
     if (booking.providerType === "doctor") {
       const schedule = database.doctorSchedules?.[booking.doctorId]?.[booking.date];
       const queue = ensureDoctorQueue(database, booking.doctorId, booking.date);
-      if (schedule && queue.issued >= schedule.capacity) {
+      if (!schedule) {
+        sendError(response, 409, "The doctor has not published appointment slots for this date");
+        return true;
+      }
+      const requestedTime = String(booking.time || "").slice(0, 5);
+      const selectedSlot = schedule.slots?.find(slot => slot.time === requestedTime && slot.available !== false);
+      if (!selectedSlot) {
+        sendError(response, 409, "This appointment slot is no longer available");
+        return true;
+      }
+      if (queue.issued >= schedule.capacity) {
         sendError(response, 409, "The doctor's daily appointment capacity is full");
         return true;
       }
@@ -1226,12 +1572,21 @@ async function routeApi(request, response, url, store, runtime = {}) {
       data.bookings.unshift(booking);
       if (booking.providerType === "doctor") {
         const queue = ensureDoctorQueue(data, booking.doctorId, booking.date);
+        const schedule = data.doctorSchedules?.[booking.doctorId]?.[booking.date];
+        const selectedSlot = schedule?.slots?.find(slot => slot.time === String(booking.time || "").slice(0, 5));
+        if (selectedSlot) selectedSlot.available = false;
         queue.issued += 1;
-        queue.capacity ||= data.doctorSchedules?.[booking.doctorId]?.[booking.date]?.capacity || 0;
+        queue.capacity ||= schedule?.capacity || 0;
+        queue.remaining = Math.max(0, Number(queue.capacity || 0) - Number(queue.issued || 0));
+        if (schedule) {
+          schedule.bookedCount = queue.issued;
+          schedule.remainingTokens = queue.remaining;
+        }
         queue.waiting.push({ token: booking.token, name: booking.patientName, reason: booking.reason || "Consultation", appointmentId: booking.id, checkedIn: true, wait: queue.waiting.length * queue.expectedMinutes });
       }
-      if (booking.providerType === "doctor" && booking.doctorId === data.doctorWorkspace.doctorId) {
-        data.doctorWorkspace.appointments.push(doctorAppointmentFromBooking(booking, data.doctorWorkspace));
+      if (booking.providerType === "doctor") {
+        const workspace = doctorWorkspaceFor(data, booking.doctorId);
+        workspace.appointments.push(doctorAppointmentFromBooking(booking, workspace));
       }
       data.notifications.unshift(normalizeNotification({
         title: booking.providerType === "lab" ? "Lab booking confirmed" : "Appointment confirmed",
@@ -1258,7 +1613,7 @@ async function routeApi(request, response, url, store, runtime = {}) {
       if (index < 0) return;
       updated = normalizeBooking({ ...data.bookings[index], ...input, id: data.bookings[index].id }, data);
       data.bookings[index] = updated;
-      const doctorAppointment = data.doctorWorkspace.appointments.find(item => item.id === updated.id);
+      const doctorAppointment = updated.doctorId ? doctorWorkspaceFor(data, updated.doctorId).appointments.find(item => item.id === updated.id) : null;
       if (doctorAppointment) Object.assign(doctorAppointment, doctorAppointmentFromBooking(updated, data.doctorWorkspace), { id: updated.id });
     });
     if (!updated) sendError(response, 404, "Booking not found");
@@ -1270,7 +1625,10 @@ async function routeApi(request, response, url, store, runtime = {}) {
     await store.mutate(data => {
       const index = data.bookings.findIndex(item => item.id === decodeURIComponent(bookingMatch[1]));
       if (index >= 0) removed = data.bookings.splice(index, 1)[0];
-      data.doctorWorkspace.appointments = data.doctorWorkspace.appointments.filter(item => item.id !== decodeURIComponent(bookingMatch[1]));
+      if (removed?.doctorId) {
+        const workspace = doctorWorkspaceFor(data, removed.doctorId);
+        workspace.appointments = workspace.appointments.filter(item => item.id !== decodeURIComponent(bookingMatch[1]));
+      }
     });
     if (!removed) sendError(response, 404, "Booking not found");
     else sendJson(response, 200, removed);
@@ -1299,7 +1657,12 @@ async function routeApi(request, response, url, store, runtime = {}) {
 
   const queueMatch = pathname.match(/^\/api\/queues\/([^/]+)$/);
   if (queueMatch && method === "GET") {
-    const queue = database.queues[decodeURIComponent(queueMatch[1])];
+    const doctorId = decodeURIComponent(queueMatch[1]);
+    const requestedDate = String(searchParams.get("date") || new Date().toISOString().slice(0, 10));
+    let queue = database.queues?.[doctorId];
+    if (queue && queue.date !== requestedDate) {
+      await store.mutate(data => { queue = ensureDoctorQueue(data, doctorId, requestedDate); });
+    }
     if (!queue) sendError(response, 404, "Queue not found");
     else {
       const token = searchParams.get("token");
@@ -1314,7 +1677,7 @@ async function routeApi(request, response, url, store, runtime = {}) {
     let queue;
     await store.mutate(data => {
       const doctorId = decodeURIComponent(queueActionMatch[1]);
-      queue = data.queues[doctorId];
+      queue = ensureDoctorQueue(data, doctorId, String(payload.date || new Date().toISOString().slice(0, 10)));
       if (queue) updateQueue(queue, payload.action, payload, data);
     });
     if (!queue) sendError(response, 404, "Queue not found");
@@ -1323,7 +1686,27 @@ async function routeApi(request, response, url, store, runtime = {}) {
   }
 
   if (pathname === "/api/doctor/dashboard" && method === "GET") {
-    sendJson(response, 200, database.doctorWorkspace.dashboard);
+    const doctorId = requireDoctor();
+    const date = String(searchParams.get("date") || new Date().toISOString().slice(0, 10));
+    const income = doctorIncomeSnapshot(database, doctorId, date, 30);
+    const queue = ensureDoctorQueue(database, doctorId, date);
+    sendJson(response, 200, {
+      metrics: [
+        { label: "Today's appointments", value: String(income.todayAppointments), trend: `${queue.remaining} tokens open`, icon: "calendar", tone: "mint" },
+        { label: "Total patients", value: String(income.totalPatients), trend: "Verified bookings", icon: "users", tone: "blue" },
+        { label: "Waiting now", value: String(queue.waiting.length), trend: queue.status === "live" ? "Queue live" : "Queue closed", icon: "clock", tone: "amber" },
+        { label: "Today's income", value: `₹${income.todayIncome.toLocaleString("en-IN")}`, trend: `${income.completedToday} completed`, icon: "rupee", tone: "violet" }
+      ],
+      income,
+      queue
+    });
+    return true;
+  }
+  if (pathname === "/api/doctor/schedule" && method === "GET") {
+    const doctorId = requireDoctor();
+    const date = String(searchParams.get("date") || new Date().toISOString().slice(0, 10));
+    const schedule = database.doctorSchedules?.[doctorId]?.[date] || null;
+    sendJson(response, 200, schedule);
     return true;
   }
   if (pathname === "/api/doctor/schedule" && method === "PUT") {
@@ -1331,15 +1714,26 @@ async function routeApi(request, response, url, store, runtime = {}) {
     const input = await readJson(request);
     const date = String(input.date || new Date().toISOString().slice(0, 10));
     const capacity = Math.max(1, Number(input.maxDailyTokens) || 100);
-    const slots = scheduleSlots(input.startTime, input.endTime, input.durationMinutes, capacity);
+    const patientsPerHour = Math.max(1, Math.min(12, Number(input.patientsPerHour) || Math.round(60 / (Number(input.durationMinutes) || 15))));
+    const durationMinutes = Math.max(5, Number(input.durationMinutes) || Math.round(60 / patientsPerHour));
+    const slots = scheduleSlots(input.startTime, input.endTime, durationMinutes, capacity);
     if (!slots.length) { sendError(response, 422, "Provide a valid schedule window"); return true; }
-    const schedule = { id: `schedule-${date}`, doctorId, date, startTime: input.startTime, endTime: input.endTime, durationMinutes: Number(input.durationMinutes) || 15, capacity: slots.length, maxDailyTokens: capacity, bookedCount: 0, remainingTokens: slots.length, slots };
+    const existingQueue = ensureDoctorQueue(database, doctorId, date);
+    if (slots.length < Number(existingQueue.issued || 0)) { sendError(response, 409, "Daily capacity cannot be lower than tokens already issued"); return true; }
+    const bookedTimes = new Set(doctorBookings(database, doctorId).filter(item => item.date === date && !["cancelled", "rejected"].includes(String(item.status || "").toLowerCase())).map(item => String(item.time || "").slice(0, 5)));
+    slots.forEach(slot => { if (bookedTimes.has(slot.time)) slot.available = false; });
+    const schedule = { id: `schedule-${date}`, doctorId, date, startTime: input.startTime, endTime: input.endTime, patientsPerHour, durationMinutes, capacity: slots.length, maxDailyTokens: capacity, bookedCount: existingQueue.issued || bookedTimes.size, remainingTokens: Math.max(0, slots.length - Number(existingQueue.issued || bookedTimes.size)), slots };
     await store.mutate(data => {
       data.doctorSchedules ||= {};
       data.doctorSchedules[doctorId] ||= {};
       data.doctorSchedules[doctorId][date] = schedule;
-      data.doctorWorkspace.doctorId = doctorId;
-      ensureDoctorQueue(data, doctorId, date).capacity = slots.length;
+      const workspace = doctorWorkspaceFor(data, doctorId);
+      workspace.schedules = workspace.schedules.filter(item => item.date !== date);
+      workspace.schedules.push(schedule);
+      const queue = ensureDoctorQueue(data, doctorId, date);
+      queue.capacity = slots.length;
+      queue.expectedMinutes = durationMinutes;
+      queue.remaining = Math.max(0, slots.length - Number(queue.issued || 0));
     });
     sendJson(response, 200, schedule);
     return true;
@@ -1352,26 +1746,32 @@ async function routeApi(request, response, url, store, runtime = {}) {
     return true;
   }
   if (pathname === "/api/doctor/appointments" && method === "GET") {
-    let appointments = database.doctorWorkspace.appointments;
+    const doctorId = requireDoctor();
+    let appointments = doctorWorkspaceFor(database, doctorId).appointments;
     const requestedDate = searchParams.get("date");
-    if (requestedDate && requestedDate !== "today") appointments = appointments.filter(item => !item.date || item.date === requestedDate);
+    const targetDate = requestedDate === "today" ? new Date().toISOString().slice(0, 10) : requestedDate;
+    if (targetDate) appointments = appointments.filter(item => !item.date || item.date === targetDate);
     sendJson(response, 200, appointments);
     return true;
   }
   if (pathname === "/api/doctor/appointments" && method === "POST") {
+    const doctorId = requireDoctor();
     const input = await readJson(request);
-    const appointment = { ...input, id: input.id || slugId("apt"), status: String(input.status || "pending").toLowerCase() };
-    await store.mutate(data => data.doctorWorkspace.appointments.push(appointment));
+    const appointment = { ...input, doctorId, id: input.id || slugId("apt"), status: String(input.status || "pending").toLowerCase() };
+    await store.mutate(data => doctorWorkspaceFor(data, doctorId).appointments.push(appointment));
     sendJson(response, 201, appointment);
     return true;
   }
   const doctorAppointmentMatch = pathname.match(/^\/api\/doctor\/appointments\/([^/]+)$/);
   if (doctorAppointmentMatch && method === "PATCH") {
+    const doctorId = requireDoctor();
     const input = await readJson(request);
     let appointment;
     await store.mutate(data => {
-      appointment = data.doctorWorkspace.appointments.find(item => item.id === decodeURIComponent(doctorAppointmentMatch[1]));
+      appointment = doctorWorkspaceFor(data, doctorId).appointments.find(item => item.id === decodeURIComponent(doctorAppointmentMatch[1]));
       if (appointment) Object.assign(appointment, input, { updatedAt: new Date().toISOString() });
+      const booking = data.bookings.find(item => item.id === decodeURIComponent(doctorAppointmentMatch[1]) && item.doctorId === doctorId);
+      if (booking) Object.assign(booking, input, { updatedAt: new Date().toISOString() });
     });
     if (!appointment) sendError(response, 404, "Appointment not found");
     else sendJson(response, 200, appointment);
@@ -1379,10 +1779,11 @@ async function routeApi(request, response, url, store, runtime = {}) {
   }
   const doctorAppointmentSubMatch = pathname.match(/^\/api\/doctor\/appointments\/([^/]+)\/(reschedule|notes)$/);
   if (doctorAppointmentSubMatch && method === "POST") {
+    const doctorId = requireDoctor();
     const input = await readJson(request);
     let appointment;
     await store.mutate(data => {
-      appointment = data.doctorWorkspace.appointments.find(item => item.id === decodeURIComponent(doctorAppointmentSubMatch[1]));
+      appointment = doctorWorkspaceFor(data, doctorId).appointments.find(item => item.id === decodeURIComponent(doctorAppointmentSubMatch[1]));
       if (!appointment) return;
       if (doctorAppointmentSubMatch[2] === "reschedule") Object.assign(appointment, input, { status: "confirmed" });
       else appointment.note = input.note || "";
@@ -1393,35 +1794,45 @@ async function routeApi(request, response, url, store, runtime = {}) {
     return true;
   }
   if (pathname === "/api/doctor/queue" && method === "GET") {
-    sendJson(response, 200, database.queues[database.doctorWorkspace.doctorId]);
+    const doctorId = requireDoctor();
+    const date = String(searchParams.get("date") || new Date().toISOString().slice(0, 10));
+    let queue;
+    await store.mutate(data => { queue = ensureDoctorQueue(data, doctorId, date); });
+    sendJson(response, 200, queue);
     return true;
   }
   const doctorQueueAction = pathname.match(/^\/api\/doctor\/queue\/(start|resume|pause|next|notify|close|delay|settings)$/);
   if (doctorQueueAction && ["POST", "PATCH"].includes(method)) {
+    const doctorId = requireDoctor();
     const payload = await readJson(request);
     let queue;
     await store.mutate(data => {
-      queue = data.queues[data.doctorWorkspace.doctorId];
-      updateQueue(queue, doctorQueueAction[1], payload, data);
+      const date = String(payload.date || new Date().toISOString().slice(0, 10));
+      queue = ensureDoctorQueue(data, doctorId, date);
+      updateQueue(queue, doctorQueueAction[1], payload, data, doctorWorkspaceFor(data, doctorId));
     });
     sendJson(response, 200, queue);
     return true;
   }
   if (pathname === "/api/doctor/patients" && method === "GET") {
-    sendJson(response, 200, database.doctorWorkspace.patients);
+    const doctorId = requireDoctor();
+    sendJson(response, 200, doctorWorkspaceFor(database, doctorId).patients);
     return true;
   }
   if (pathname === "/api/doctor/profile" && method === "GET") {
-    sendJson(response, 200, database.doctorWorkspace.profile);
+    const doctorId = requireDoctor();
+    sendJson(response, 200, doctorWorkspaceFor(database, doctorId).profile);
     return true;
   }
   if (pathname === "/api/doctor/profile" && method === "PUT") {
+    const doctorId = requireDoctor();
     const input = await readJson(request);
     let profile;
     await store.mutate(data => {
-      profile = { ...data.doctorWorkspace.profile, ...input, updatedAt: new Date().toISOString() };
-      data.doctorWorkspace.profile = profile;
-      const index = data.doctors.findIndex(item => item.id === data.doctorWorkspace.doctorId);
+      const workspace = doctorWorkspaceFor(data, doctorId);
+      profile = { ...workspace.profile, ...input, updatedAt: new Date().toISOString() };
+      workspace.profile = profile;
+      const index = data.doctors.findIndex(item => item.id === doctorId);
       if (index >= 0) {
         const publicUpdates = {
           name: profile.name,
@@ -1440,7 +1851,20 @@ async function routeApi(request, response, url, store, runtime = {}) {
     return true;
   }
   if (pathname === "/api/doctor/analytics" && method === "GET") {
-    sendJson(response, 200, { ...database.doctorWorkspace.analytics, range: numeric(searchParams.get("range"), 30) });
+    const doctorId = requireDoctor();
+    const range = numeric(searchParams.get("range"), 30);
+    const income = doctorIncomeSnapshot(database, doctorId, new Date().toISOString().slice(0, 10), range);
+    sendJson(response, 200, {
+      totalBookings: income.totalBookings,
+      repeatPatients: "0%",
+      revenue: `₹${income.rangeIncome.toLocaleString("en-IN")}`,
+      todayIncome: income.todayIncome,
+      totalIncome: income.totalIncome,
+      rating: "0",
+      cancellationRate: "0%",
+      range,
+      income
+    });
     return true;
   }
 
@@ -1660,6 +2084,7 @@ async function routeApi(request, response, url, store, runtime = {}) {
     const existingPatient = database.users.find(item => phoneDigits(item.phone) === phone);
     const sessionToken = `${isDoctorLogin ? "doctor" : "patient"}-${randomUUID()}`;
     if (isDoctorLogin) doctorSessions.set(sessionToken, matchedDoctor.id);
+    else patientSessions.set(sessionToken, existingPatient?.id || phone);
     sendJson(response, 200, {
       verified: true,
       provider: msg91SendOtpConfigured ? "msg91" : "local-sandbox",
@@ -1757,7 +2182,22 @@ async function routeApi(request, response, url, store, runtime = {}) {
       if (!nextSlot || queue.issued >= schedule.capacity) { sendError(response, 409, "The doctor's daily capacity is full"); return true; }
       const booking = normalizeBooking({ ...input, doctorId, date, time: nextSlot.time, providerType: "doctor", status: "checked-in" }, database);
       booking.token = `T${String(queue.issued + 1).padStart(3, "0")}`;
-      await store.mutate(data => { data.bookings.unshift(booking); const currentQueue = ensureDoctorQueue(data, doctorId, date); currentQueue.issued += 1; currentQueue.capacity = schedule.capacity; currentQueue.waiting.push({ token: booking.token, name: booking.patientName, reason: booking.reason || "Consultation", appointmentId: booking.id, checkedIn: true, wait: currentQueue.waiting.length * currentQueue.expectedMinutes }); });
+      await store.mutate(data => {
+        data.bookings.unshift(booking);
+        const savedSchedule = data.doctorSchedules?.[doctorId]?.[date];
+        const savedSlot = savedSchedule?.slots?.find(slot => slot.time === nextSlot.time);
+        if (savedSlot) savedSlot.available = false;
+        const currentQueue = ensureDoctorQueue(data, doctorId, date);
+        currentQueue.issued += 1;
+        currentQueue.capacity = schedule.capacity;
+        currentQueue.remaining = Math.max(0, currentQueue.capacity - currentQueue.issued);
+        if (savedSchedule) {
+          savedSchedule.bookedCount = currentQueue.issued;
+          savedSchedule.remainingTokens = currentQueue.remaining;
+        }
+        currentQueue.waiting.push({ token: booking.token, name: booking.patientName, reason: booking.reason || "Consultation", appointmentId: booking.id, checkedIn: true, wait: currentQueue.waiting.length * currentQueue.expectedMinutes });
+        doctorWorkspaceFor(data, doctorId).appointments.push(doctorAppointmentFromBooking(booking, doctorWorkspaceFor(data, doctorId)));
+      });
       sendJson(response, 201, { ...booking, status: "checked-in", token: booking.token });
       return true;
     }
@@ -1877,19 +2317,25 @@ async function sendFile(response, rootDirectory, relativePath) {
 
 export async function createSehatLineServer(options = {}) {
   const useMongo = !options.store
+    && !options.dataFile
     && options.useMongo !== false
     && Boolean(String(process.env.MONGODB_URI || "").trim())
     && process.env.SEHATLINE_SKIP_DATABASE !== "true";
   if (useMongo) await connectDatabase();
   const store = options.store || (useMongo ? new MongoStore() : new JsonStore(options.dataFile));
   if (!store.data) await store.initialize();
+  const production = options.production ?? process.env.NODE_ENV === "production";
+  const adminJwtSecret = options.adminJwtSecret || process.env.ADMIN_JWT_SECRET || (production ? "" : randomBytes(48).toString("hex"));
+  if (production && !adminJwtSecret) throw new Error("ADMIN_JWT_SECRET is required in production");
+  if (production && !useMongo) throw new Error("MONGODB_URI is required in production");
   const adminAuth = new AdminAuthService({
     store,
-    jwtSecret: options.adminJwtSecret || process.env.ADMIN_JWT_SECRET || randomBytes(48).toString("hex"),
-    production: options.production ?? process.env.NODE_ENV === "production"
+    jwtSecret: adminJwtSecret,
+    production
   });
   await adminAuth.initialize();
   const doctorSessions = new Map();
+  const patientSessions = new Map();
   const logger = options.logger || console;
   const server = http.createServer(async (request, response) => {
     try {
@@ -1897,8 +2343,14 @@ export async function createSehatLineServer(options = {}) {
       const handled = await routeApi(request, response, url, store, {
         adminAuth,
         doctorSessions,
+        patientSessions,
+        requirePatientAuth: production || options.requirePatientAuth === true,
+        requireDoctorAuth: production || options.requireDoctorAuth === true,
         uploadRoot: options.uploadRoot,
         providerFetch: options.providerFetch,
+        razorpayKeyId: options.razorpayKeyId,
+        razorpayKeySecret: options.razorpayKeySecret,
+        razorpayWebhookSecret: options.razorpayWebhookSecret,
         identitySandboxEnabled: options.identitySandboxEnabled,
         otpSandboxEnabled: options.otpSandboxEnabled
       });
@@ -1931,17 +2383,15 @@ export async function createSehatLineServer(options = {}) {
 export async function startServer(options = {}) {
   const { server, store, adminAuth } = await createSehatLineServer(options);
   const requestedPort = options.port ?? DEFAULT_PORT;
+  const requestedHost = options.host || process.env.HOST || "0.0.0.0";
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-   server.listen(
-  requestedPort,
-  options.host || process.env.HOST || "0.0.0.0",
-  resolve
-);
+    server.listen(requestedPort, requestedHost, resolve);
   });
   const address = server.address();
   const port = typeof address === "object" ? address.port : requestedPort;
-  return { server, store, adminAuth, port, url: `http://127.0.0.1:${port}` };
+  const displayHost = requestedHost === "0.0.0.0" || requestedHost === "::" ? "localhost" : requestedHost;
+  return { server, store, adminAuth, port, url: `http://${displayHost}:${port}` };
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase();

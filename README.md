@@ -81,6 +81,23 @@ login session. Never commit or share `.env.local`.
 route. Patient OTP delivery uses the template/channel selected inside the MSG91
 Widget.
 
+### Doctor onboarding payment (Razorpay)
+
+Doctor applications use Razorpay Standard Checkout for the one-time launch plan:
+₹599 + 18% GST (₹706.82 total). Add these server-only values to `.env.local`:
+
+```env
+RAZORPAY_KEY_ID=
+RAZORPAY_KEY_SECRET=
+RAZORPAY_WEBHOOK_SECRET=
+```
+
+Configure the Razorpay webhook URL as
+`https://YOUR-DOMAIN/api/payments/razorpay/webhook` and subscribe to
+`payment.captured`. Payment signatures and captured status are verified on the
+server; the Key Secret is never sent to the browser. A paid application still
+requires manual owner approval of the doctor's medical credentials.
+
 ## Android production apps
 
 Prerequisites:
