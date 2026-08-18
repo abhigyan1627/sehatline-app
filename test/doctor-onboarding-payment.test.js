@@ -112,9 +112,10 @@ test("doctor launch onboarding verifies payment, publishes capacity and reports 
     await requestJson(`${url}/api/doctor/appointments/${booking.id}`, "PATCH", { status: "completed" }, login.token);
 
     const dashboard = await fetch(`${url}/api/doctor/dashboard`, { headers: { Authorization: `Bearer ${login.token}` } }).then(response => response.json());
-    assert.equal(dashboard.income.todayIncome, 500);
+    assert.equal(dashboard.income.todayIncome, 0);
     assert.equal(dashboard.income.completedToday, 1);
-    assert.equal(dashboard.metrics.at(-1).value, "₹500");
+    assert.equal(dashboard.income.collections.dueAmount, 500);
+    assert.equal(dashboard.metrics.at(-1).value, "₹0");
 
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
     const resetQueue = await fetch(`${url}/api/doctor/queue?date=${tomorrow}`, { headers: { Authorization: `Bearer ${login.token}` } }).then(response => response.json());

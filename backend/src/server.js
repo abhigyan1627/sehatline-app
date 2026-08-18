@@ -51,6 +51,8 @@ const otpSendTimes = new Map();
 const razorpayKeyId = String(process.env.RAZORPAY_KEY_ID || "").trim();
 const razorpayKeySecret = String(process.env.RAZORPAY_KEY_SECRET || "").trim();
 const razorpayWebhookSecret = String(process.env.RAZORPAY_WEBHOOK_SECRET || "").trim();
+const googleMapsServerApiKey = String(process.env.GOOGLE_MAPS_SERVER_API_KEY || "").trim();
+const PATIENT_PAYMENT_RESERVATION_MS = 15 * 60 * 1000;
 const DOCTOR_LAUNCH_PLAN = Object.freeze({
   id: "doctor-launch-599",
   name: "SehatLine Doctor Launch Plan",
@@ -99,6 +101,8 @@ const apiReference = {
     "GET /api/doctor/onboarding/plan",
     "POST /api/doctor/onboarding/payment/order",
     "POST /api/doctor/onboarding/payment/verify",
+    "POST /api/patient/payments/order",
+    "POST /api/patient/payments/verify",
     "POST /api/payments/razorpay/webhook",
     "GET|POST /api/labs",
     "GET|PUT|PATCH /api/labs/:id",
@@ -110,6 +114,11 @@ const apiReference = {
     "GET /api/users",
     "GET|POST /api/notifications",
     "GET /api/admin/overview",
+    "GET /api/public-care/facilities",
+    "GET /api/public-care/facilities/:id",
+    "GET /api/health-support/locations",
+    "GET /api/health-support/schemes",
+    "GET /api/health-support/insurance",
     "GET /api/auth/otp/config",
     "POST /api/auth/verify-widget-token",
     "POST /api/auth/patient/identity/start",
@@ -182,6 +191,28 @@ async function createRazorpayOrder(doctor, gateway, providerFetch = fetch) {
   const payload = await providerJson(response);
   if (!response.ok || !payload.id) {
     throw Object.assign(new Error(firstText(payload?.error?.description, payload?.message, "Payment order could not be created")), { statusCode: 502 });
+  }
+  return { ...payload, receipt };
+}
+
+async function createPatientBookingOrder({ doctor, patientId, date, time, amountPaise }, gateway, providerFetch = fetch) {
+  const receipt = `sl-visit-${String(doctor.id).replace(/[^a-z0-9_-]/gi, "").slice(-14)}-${Date.now()}`.slice(0, 40);
+  const response = await providerFetch("https://api.razorpay.com/v1/orders", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${gateway.keyId}:${gateway.keySecret}`).toString("base64")}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      amount: amountPaise,
+      currency: "INR",
+      receipt,
+      notes: { purpose: "patient-appointment", doctorId: doctor.id, patientId, date, time }
+    })
+  });
+  const payload = await providerJson(response);
+  if (!response.ok || !payload.id) {
+    throw Object.assign(new Error(firstText(payload?.error?.description, payload?.message, "Appointment payment order could not be created")), { statusCode: 502 });
   }
   return { ...payload, receipt };
 }
@@ -634,6 +665,8 @@ function normalizeBooking(input, database) {
   const amount = providerType === "lab"
     ? numeric(input.amount, numeric(input.price, numeric(lab?.price)))
     : numeric(doctor?.fee, numeric(input.amount));
+  const paymentMode = input.paymentMode === "online" ? "online" : "cash";
+  const trustedPaymentStatus = input.paymentStatus === "paid" && input.paymentVerified === true ? "paid" : paymentMode === "cash" ? "due" : "pending";
   return {
     ...input,
     id: input.id || slugId(providerType === "lab" ? "lab-booking" : "appointment"),
@@ -653,6 +686,9 @@ function normalizeBooking(input, database) {
     status: titleCase(input.status || "confirmed"),
     reason: input.reason || input.visitReason || input.test || "",
     amount,
+    paymentMode,
+    paymentStatus: trustedPaymentStatus,
+    paymentVerified: trustedPaymentStatus === "paid",
     upcoming: input.upcoming ?? !["completed", "cancelled"].includes(String(input.status || "").toLowerCase()),
     createdAt: input.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -677,6 +713,9 @@ function doctorAppointmentFromBooking(booking, workspace) {
     reason: booking.reason || "General consultation",
     type: booking.type || "New patient",
     status: String(booking.status || "confirmed").toLowerCase(),
+    amount: numeric(booking.amount),
+    paymentMode: booking.paymentMode || "cash",
+    paymentStatus: booking.paymentStatus || (booking.paymentMode === "online" ? "pending" : "due"),
     note: booking.note || "",
     date: booking.date
   };
@@ -797,9 +836,84 @@ function doctorBookings(database, doctorId) {
   return database.bookings.filter(item => item.doctorId === doctorId);
 }
 
+function activePaymentReservation(database, doctorId, date, time) {
+  return Object.values(database.patientPaymentOrders || {}).find(item => item.doctorId === doctorId
+    && item.date === date
+    && item.time === time
+    && item.status === "created"
+    && Number(item.expiresAt) > Date.now());
+}
+
+function commitDoctorBooking(database, booking) {
+  const schedule = database.doctorSchedules?.[booking.doctorId]?.[booking.date];
+  const queue = ensureDoctorQueue(database, booking.doctorId, booking.date);
+  const selectedSlot = schedule?.slots?.find(slot => slot.time === String(booking.time || "").slice(0, 5) && slot.available !== false);
+  if (!schedule || !selectedSlot || queue.issued >= Number(schedule.capacity || 0)) return false;
+  booking.token = `T${String((queue.issued || 0) + 1).padStart(3, "0")}`;
+  database.bookings.unshift(booking);
+  selectedSlot.available = false;
+  queue.issued += 1;
+  queue.capacity ||= schedule.capacity || 0;
+  queue.remaining = Math.max(0, Number(queue.capacity || 0) - Number(queue.issued || 0));
+  schedule.bookedCount = queue.issued;
+  schedule.remainingTokens = queue.remaining;
+  queue.waiting.push({ token: booking.token, name: booking.patientName, reason: booking.reason || "Consultation", appointmentId: booking.id, checkedIn: true, wait: queue.waiting.length * queue.expectedMinutes });
+  const workspace = doctorWorkspaceFor(database, booking.doctorId);
+  if (!workspace.appointments.some(item => item.id === booking.id)) workspace.appointments.push(doctorAppointmentFromBooking(booking, workspace));
+  database.notifications.unshift(normalizeNotification({ title: "Appointment confirmed", message: `${booking.providerName} is booked for ${booking.date} at ${booking.time}.`, audience: "Single patient", icon: "check-circle" }));
+  return true;
+}
+
+function commitPaidPatientBooking(database, order, paymentId) {
+  if (order.status === "booked") return database.bookings.find(item => item.id === order.bookingId || item.paymentOrderId === order.orderId);
+  const booking = normalizeBooking({
+    ...(order.booking || {}),
+    doctorId: order.doctorId,
+    patientId: order.patientId,
+    date: order.date,
+    time: order.time,
+    paymentMode: "online",
+    paymentStatus: "paid",
+    paymentVerified: true,
+    paymentOrderId: order.orderId,
+    paymentId,
+    paidAt: new Date().toISOString(),
+    amount: Number(order.amountPaise) / 100
+  }, database);
+  if (!commitDoctorBooking(database, booking)) return null;
+  Object.assign(order, { status: "booked", paymentId, bookingId: booking.id, paidAt: booking.paidAt });
+  return booking;
+}
+
+function activeBooking(item) {
+  return !["cancelled", "rejected", "no-show"].includes(String(item.status || "").toLowerCase());
+}
+
+function doctorCollectionSnapshot(database, doctorId, date = new Date().toISOString().slice(0, 10)) {
+  const today = doctorBookings(database, doctorId).filter(item => item.date === date && activeBooking(item));
+  const online = today.filter(item => item.paymentMode === "online" && item.paymentStatus === "paid");
+  const cash = today.filter(item => item.paymentMode === "cash" && item.paymentStatus === "paid");
+  const due = today.filter(item => item.paymentStatus !== "paid");
+  const sum = items => items.reduce((total, item) => total + numeric(item.amount), 0);
+  return {
+    date,
+    currency: "INR",
+    onlineAmount: sum(online),
+    onlineCount: online.length,
+    cashAmount: sum(cash),
+    cashCount: cash.length,
+    dueAmount: sum(due),
+    dueCount: due.length,
+    collectedAmount: sum([...online, ...cash]),
+    collectedCount: online.length + cash.length,
+    expectedAmount: sum(today),
+    appointmentCount: today.length
+  };
+}
+
 function doctorIncomeSnapshot(database, doctorId, date = new Date().toISOString().slice(0, 10), rangeDays = 30) {
   const bookings = doctorBookings(database, doctorId);
-  const active = bookings.filter(item => !["cancelled", "rejected", "no-show"].includes(String(item.status || "").toLowerCase()));
+  const active = bookings.filter(activeBooking);
   const completed = active.filter(item => String(item.status || "").toLowerCase() === "completed");
   const cutoff = new Date();
   cutoff.setHours(0, 0, 0, 0);
@@ -810,9 +924,11 @@ function doctorIncomeSnapshot(database, doctorId, date = new Date().toISOString(
   });
   const todayBookings = active.filter(item => item.date === date);
   const uniquePatients = new Set(active.map(item => item.patientId || phoneDigits(item.patientPhone) || item.patientName).filter(Boolean));
-  const totalIncome = completed.reduce((sum, item) => sum + numeric(item.amount), 0);
-  const todayIncome = completed.filter(item => item.date === date).reduce((sum, item) => sum + numeric(item.amount), 0);
-  const rangeIncome = inRange.filter(item => String(item.status || "").toLowerCase() === "completed").reduce((sum, item) => sum + numeric(item.amount), 0);
+  const paid = active.filter(item => item.paymentStatus === "paid");
+  const totalIncome = paid.reduce((sum, item) => sum + numeric(item.amount), 0);
+  const todayIncome = paid.filter(item => item.date === date).reduce((sum, item) => sum + numeric(item.amount), 0);
+  const rangeIncome = inRange.filter(item => item.paymentStatus === "paid").reduce((sum, item) => sum + numeric(item.amount), 0);
+  const collections = doctorCollectionSnapshot(database, doctorId, date);
   return {
     date,
     totalBookings: active.length,
@@ -824,7 +940,8 @@ function doctorIncomeSnapshot(database, doctorId, date = new Date().toISOString(
     todayIncome,
     rangeIncome,
     rangeDays: Number(rangeDays) || 30,
-    currency: "INR"
+    currency: "INR",
+    collections
   };
 }
 
@@ -912,8 +1029,140 @@ function calculateOverview(database) {
     revenue: database.bookings
       .filter(item => String(item.status).toLowerCase() !== "cancelled")
       .reduce((sum, item) => sum + numeric(item.amount), 0),
-    activeCity: database.meta?.city || "Prayagraj"
+    activeCity: database.meta?.city || "Prayagraj",
+    publicFacilities: (database.publicFacilities || []).length,
+    healthSupportLocations: (database.healthSupportLocations || []).length,
+    governmentSchemes: (database.governmentSchemes || []).length
+    ,insurancePlans: (database.insurancePlans || []).length
   };
+}
+
+const ecosystemCollections = Object.freeze({
+  "public-care/facilities": "publicFacilities",
+  "health-support/locations": "healthSupportLocations",
+  "health-support/schemes": "governmentSchemes",
+  "health-support/insurance": "insurancePlans"
+});
+
+function radians(value) { return Number(value) * Math.PI / 180; }
+function distanceKm(fromLat, fromLng, toLat, toLng) {
+  const earthKm = 6371;
+  const dLat = radians(toLat - fromLat), dLng = radians(toLng - fromLng);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(fromLat)) * Math.cos(radians(toLat)) * Math.sin(dLng / 2) ** 2;
+  return earthKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function sameText(left, right) { return Boolean(left && right) && String(left).trim().toLowerCase() === String(right).trim().toLowerCase(); }
+
+function ecosystemList(items, searchParams, includeInactive = false) {
+  let list = includeInactive ? [...(items || [])] : (items || []).filter(item => item.active !== false);
+  const lat = optionalNumber(searchParams.get("lat")), lng = optionalNumber(searchParams.get("lng"));
+  const filters = { state: "state", district: "district", city: "city", block: "block", pincode: "pincode", type: "type", facilityType: "facilityType", category: "category", governmentLevel: "governmentLevel", insuranceType: "insuranceType" };
+  for (const [queryKey, field] of Object.entries(filters)) {
+    const wanted = String(searchParams.get(queryKey) || "").trim().toLowerCase();
+    if (wanted) list = list.filter(item => {
+      if (lat != null && lng != null && ["state","district","city","block","pincode"].includes(queryKey) && item.latitude != null && item.longitude != null) return true;
+      return String(item[field] || "").toLowerCase() === wanted;
+    });
+  }
+  const status = String(searchParams.get("status") || "").toLowerCase();
+  if (status === "active") list = list.filter(item => item.active !== false);
+  if (["inactive", "disabled"].includes(status)) list = list.filter(item => item.active === false);
+  const query = String(searchParams.get("search") || "").trim().toLowerCase().slice(0, 120);
+  if (query) list = list.filter(item => `${item.name || ""} ${item.planName || ""} ${item.provider || ""} ${item.address || ""} ${item.district || ""} ${item.city || ""} ${item.block || ""} ${item.pincode || ""}`.toLowerCase().includes(query));
+  const radiusKm = Math.min(100, Math.max(1, numeric(searchParams.get("radius"), 25000) / 1000));
+  let locationMatch = null;
+  if (lat != null && lng != null) {
+    list = list.map(item => {
+      if (item.latitude == null || item.longitude == null) return item;
+      return { ...item, distanceKm: Math.round(distanceKm(lat, lng, item.latitude, item.longitude) * 10) / 10 };
+    });
+    const nearby = list.filter(item => item.distanceKm != null && item.distanceKm <= radiusKm).sort((a, b) => a.distanceKm - b.distanceKm);
+    const withoutCoordinates = list.filter(item => item.distanceKm == null);
+    if (nearby.length) { list = [...nearby, ...withoutCoordinates]; locationMatch = "nearby"; }
+  }
+  const requestedDistrict = searchParams.get("district"), requestedState = searchParams.get("state");
+  if (!list.length && !includeInactive && requestedDistrict) {
+    list = (items || []).filter(item => item.active !== false && sameText(item.district, requestedDistrict));
+    locationMatch = "district-fallback";
+  }
+  if (!list.length && !includeInactive && requestedState) {
+    list = (items || []).filter(item => item.active !== false && sameText(item.state, requestedState));
+    locationMatch = "state-fallback";
+  }
+  const page = Math.max(1, numeric(searchParams.get("page"), 1));
+  const limit = Math.min(50, Math.max(1, numeric(searchParams.get("limit"), 20)));
+  const total = list.length;
+  return { items: list.slice((page - 1) * limit, page * limit), pagination: { page, limit, total, pages: Math.ceil(total / limit) }, locationMatch };
+}
+
+function googleComponent(components, ...types) {
+  return components?.find(component => types.some(type => component.types?.includes(type)))?.longText || "";
+}
+function normalizeGooglePlace(place = {}) {
+  const components = place.addressComponents || [];
+  const countryCode = components.find(component => component.types?.includes("country"))?.shortText || "";
+  const locality = googleComponent(components, "locality", "postal_town", "administrative_area_level_3");
+  const sublocality = googleComponent(components, "sublocality_level_1", "sublocality", "neighborhood");
+  const name = place.displayName?.text || sublocality || locality || googleComponent(components, "administrative_area_level_2", "administrative_area_level_1");
+  return {
+    provider:"google", placeId: place.id || place.placeId || "", name, formattedAddress: place.formattedAddress || "",
+    latitude: place.location?.latitude ?? null, longitude: place.location?.longitude ?? null,
+    country: googleComponent(components, "country") || "India", countryCode: countryCode || "IN",
+    state: googleComponent(components, "administrative_area_level_1"),
+    district: googleComponent(components, "administrative_area_level_2"),
+    city: googleComponent(components, "locality"), town: googleComponent(components, "postal_town"),
+    village: googleComponent(components, "administrative_area_level_3"), locality, sublocality,
+    postalCode: googleComponent(components, "postal_code")
+  };
+}
+function normalizeNominatimPlace(place = {}) {
+  const address = place.address || {}, osmType = String(place.osm_type || "").slice(0,1).toUpperCase();
+  return { provider:"openstreetmap", placeId:osmType && place.osm_id ? `osm:${osmType}:${place.osm_id}` : "", name:place.name || address.village || address.town || address.city || address.suburb || String(place.display_name || "").split(",")[0], formattedAddress:place.display_name || "", latitude:optionalNumber(place.lat), longitude:optionalNumber(place.lon), country:address.country || "India", countryCode:String(address.country_code || "in").toUpperCase(), state:address.state || "", district:address.state_district || address.county || "", city:address.city || "", town:address.town || "", village:address.village || "", locality:address.suburb || address.city_district || address.village || address.town || address.city || "", sublocality:address.neighbourhood || address.quarter || "", postalCode:address.postcode || "" };
+}
+
+function normalizeEcosystemInput(input, collection, existing = {}) {
+  const allowed = collection === "publicFacilities"
+    ? ["name","facilityType","country","state","district","city","town","village","locality","sublocality","block","pincode","address","formattedAddress","placeId","phone","email","latitude","longitude","opdTimings","emergencyAvailable","services","departments","description","sourceUrl","active","verified","notes"]
+    : collection === "healthSupportLocations"
+      ? ["name","type","country","state","district","city","town","village","locality","sublocality","block","pincode","address","formattedAddress","placeId","phone","email","latitude","longitude","openingHours","services","description","active","verified"]
+      : collection === "governmentSchemes"
+        ? ["name","slug","governmentLevel","state","category","shortDescription","description","eligibility","benefits","requiredDocuments","applicationProcess","officialUrl","active","verified"]
+        : ["provider","planName","insuranceType","state","shortDescription","description","eligibility","benefits","officialUrl","active","verified"];
+  const item = { ...existing };
+  for (const key of allowed) if (Object.hasOwn(input, key)) item[key] = input[key];
+  for (const key of ["name","planName","provider","country","state","district","city","town","village","locality","sublocality","block","pincode","address","formattedAddress","placeId","phone","email","description","shortDescription","eligibility","applicationProcess","officialUrl","sourceUrl","notes","opdTimings","openingHours","category","slug"]) {
+    if (Object.hasOwn(item, key)) item[key] = String(item[key] ?? "").trim().slice(0, key.includes("description") || key === "eligibility" ? 4000 : 300);
+  }
+  for (const key of ["services","departments","benefits","requiredDocuments"]) if (Object.hasOwn(item, key)) item[key] = asArray(item[key]).slice(0, 50).map(value => String(value).slice(0, 200));
+  for (const key of ["emergencyAvailable","active","verified"]) if (typeof item[key] === "string") item[key] = item[key] === "true";
+  item.active = item.active !== false;
+  item.verified = item.verified === true;
+  for (const key of ["latitude","longitude"]) if (Object.hasOwn(item, key)) item[key] = optionalNumber(item[key]);
+  if (!item.country && ["publicFacilities", "healthSupportLocations"].includes(collection)) item.country = "India";
+  item.updatedAt = new Date().toISOString();
+  item.lastUpdated = item.updatedAt;
+  return item;
+}
+
+function validateEcosystemItem(item, collection) {
+  const enums = {
+    publicFacilities: ["GOVT_HOSPITAL", "PHC", "CHC", "SADAR_HOSPITAL", "MEDICAL_COLLEGE", "OTHER"],
+    healthSupportLocations: ["JAN_AUSHADHI", "PHARMACY", "OTHER"],
+    governmentSchemes: ["CENTRAL", "STATE", "DISTRICT"],
+    insurancePlans: ["GOVERNMENT", "PRIVATE"]
+  };
+  if (collection === "insurancePlans") {
+    if (!item.provider || !item.planName) return "Provider and plan name are required";
+    if (item.insuranceType && !enums.insurancePlans.includes(item.insuranceType)) return "Invalid insurance type";
+  } else if (!item.name) return "Name is required";
+  const enumField = ({ publicFacilities: "facilityType", healthSupportLocations: "type", governmentSchemes: "governmentLevel" })[collection];
+  if (enumField && (!item[enumField] || !enums[collection].includes(item[enumField]))) return `Invalid ${enumField}`;
+  if (item.pincode && !/^[1-9][0-9]{5}$/.test(item.pincode)) return "PIN code must contain six digits";
+  if (item.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.email)) return "A valid email is required";
+  if (item.officialUrl || item.sourceUrl) {
+    try { const url = new URL(item.officialUrl || item.sourceUrl); if (!["http:", "https:"].includes(url.protocol)) throw new Error(); } catch { return "Official URL must use HTTP or HTTPS"; }
+  }
+  return "";
 }
 
 function fallbackRecommendation({ query = "", doctors = [], labs = [] }) {
@@ -1000,6 +1249,8 @@ async function routeApi(request, response, url, store, runtime = {}) {
   const method = request.method;
   const database = store.snapshot();
   const providerFetch = runtime.providerFetch || fetch;
+  const locationApiKey = String(runtime.googleMapsServerApiKey ?? googleMapsServerApiKey).trim();
+  const runtimeLogger = runtime.logger || console;
   const useIdentitySandbox = runtime.identitySandboxEnabled ?? identitySandboxEnabled;
   const useOtpSandbox = runtime.otpSandboxEnabled ?? otpSandboxEnabled;
   const paymentGateway = {
@@ -1011,10 +1262,10 @@ async function routeApi(request, response, url, store, runtime = {}) {
   const adminAuth = runtime.adminAuth;
   const doctorSessions = runtime.doctorSessions;
   const patientSessions = runtime.patientSessions;
+  const authenticatedPatientId = patientSessions.get(bearerToken(request)) || "";
   const requirePatient = () => {
-    const patientId = patientSessions.get(bearerToken(request));
-    if (!patientId) throw Object.assign(new Error("Patient login required"), { statusCode: 401, code: "PATIENT_AUTH_REQUIRED" });
-    return patientId;
+    if (!authenticatedPatientId) throw Object.assign(new Error("Patient login required"), { statusCode: 401, code: "PATIENT_AUTH_REQUIRED" });
+    return authenticatedPatientId;
   };
 
   const requireDoctor = () => {
@@ -1028,7 +1279,8 @@ async function routeApi(request, response, url, store, runtime = {}) {
       || pathname === "/api/reports"
       || pathname === "/api/bookings"
       || pathname === "/api/appointments"
-      || /^\/api\/(bookings|appointments)\/[^/]+$/.test(pathname);
+      || /^\/api\/(bookings|appointments)\/[^/]+$/.test(pathname)
+      || /^\/api\/queues\/[^/]+$/.test(pathname);
     if (protectedPatientPath) requirePatient();
   }
   if (runtime.requireDoctorAuth && pathname.startsWith("/api/doctor/") && !pathname.startsWith("/api/doctor/request-otp") && !pathname.startsWith("/api/doctor/verify-otp")) {
@@ -1123,18 +1375,65 @@ async function routeApi(request, response, url, store, runtime = {}) {
     sendJson(response, 201, { url: `/uploads/${filename}` });
     return true;
   }
+  if (pathname === "/api/location/autocomplete" && method === "GET") {
+    const input = String(searchParams.get("input") || "").trim().slice(0, 160);
+    if (input.length < 2) { sendJson(response, 200, { suggestions: [] }); return true; }
+    if (!locationApiKey) {
+      runtimeLogger.warn?.("[SehatLine Location] Google key missing; using OpenStreetMap search fallback.");
+      try {
+        const fallbackResponse = await providerFetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=in&limit=6&q=${encodeURIComponent(input)}`, { headers:{ "User-Agent":"SehatLine/1.0", "Accept-Language":"en-IN,en" } });
+        if (!fallbackResponse.ok) throw new Error(`status ${fallbackResponse.status}`);
+        const places = await fallbackResponse.json();
+        const suggestions = places.map(normalizeNominatimPlace).filter(place => place.placeId).map(place => ({ placeId:place.placeId, text:place.formattedAddress, primaryText:place.name, secondaryText:place.formattedAddress.split(",").slice(1).join(",").trim() }));
+        sendJson(response, 200, { suggestions, provider:"openstreetmap-fallback" }); return true;
+      } catch (error) { runtimeLogger.error?.(`[SehatLine Location] Fallback autocomplete failed: ${error.message}`); sendJson(response, 503, { error:{ code:"LOCATION_PROVIDER_UNAVAILABLE", message:"Unable to search locations right now. Please try again." } }); return true; }
+    }
+    const sessionToken = String(searchParams.get("sessionToken") || "").trim().slice(0, 80);
+    const providerResponse = await providerFetch("https://places.googleapis.com/v1/places:autocomplete", {
+      method: "POST", headers: { "Content-Type": "application/json", "X-Goog-Api-Key": locationApiKey, "X-Goog-FieldMask": "suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat" },
+      body: JSON.stringify({ input, ...(sessionToken ? { sessionToken } : {}), includedRegionCodes: ["in"], regionCode: "in", languageCode: "en" })
+    });
+    if (!providerResponse.ok) { const diagnostic = await providerResponse.text().catch(() => ""); runtimeLogger.error?.(`[SehatLine Location] Google autocomplete failed (${providerResponse.status}) ${diagnostic.slice(0,500)}`); sendJson(response, 503, { error:{ code:"GOOGLE_PLACES_REQUEST_FAILED", message:"Unable to search locations right now. Please try again." } }); return true; }
+    const payload = await providerResponse.json();
+    const suggestions = (payload.suggestions || []).map(entry => entry.placePrediction).filter(Boolean).slice(0, 6).map(place => ({ placeId: place.placeId, text: place.text?.text || "", primaryText: place.structuredFormat?.mainText?.text || place.text?.text || "", secondaryText: place.structuredFormat?.secondaryText?.text || "" }));
+    sendJson(response, 200, { suggestions }); return true;
+  }
+  if (pathname === "/api/location/place" && method === "GET") {
+    const placeId = String(searchParams.get("placeId") || "").trim();
+    if (placeId.startsWith("osm:")) {
+      const [,type,id] = placeId.split(":");
+      try {
+        const fallbackResponse = await providerFetch(`https://nominatim.openstreetmap.org/lookup?format=jsonv2&addressdetails=1&osm_ids=${encodeURIComponent(type + id)}`, { headers:{ "User-Agent":"SehatLine/1.0", "Accept-Language":"en-IN,en" } });
+        if (!fallbackResponse.ok) throw new Error();
+        const location = normalizeNominatimPlace((await fallbackResponse.json())[0] || {});
+        if (!location.placeId) { sendError(response,404,"Location details were not found"); return true; }
+        sendJson(response,200,location); return true;
+      } catch { sendJson(response,503,{ error:{ code:"LOCATION_DETAILS_FAILED",message:"Location details are temporarily unavailable" } }); return true; }
+    }
+    if (!placeId || !locationApiKey) { sendJson(response, locationApiKey ? 422 : 503, { error:{ code:locationApiKey ? "PLACE_ID_REQUIRED" : "GOOGLE_MAPS_NOT_CONFIGURED", message:locationApiKey ? "Place ID is required" : "Location search is temporarily unavailable" } }); return true; }
+    const providerResponse = await providerFetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?languageCode=en&regionCode=in`, { headers: { "X-Goog-Api-Key": locationApiKey, "X-Goog-FieldMask": "id,displayName,formattedAddress,addressComponents,location" } });
+    if (!providerResponse.ok) { runtimeLogger.error?.(`[SehatLine Location] Google place details failed (${providerResponse.status})`); sendJson(response, 503, { error:{ code:"GOOGLE_PLACE_DETAILS_FAILED", message:"Location details are temporarily unavailable" } }); return true; }
+    const location = normalizeGooglePlace(await providerResponse.json());
+    if (location.countryCode && location.countryCode !== "IN") { sendError(response, 422, "Please select a location in India"); return true; }
+    sendJson(response, 200, location); return true;
+  }
   if (pathname === "/api/location/reverse" && method === "POST") {
-    const input = await readJson(request);
-    let location = { city: database.meta?.city || "Prayagraj", state: "Uttar Pradesh", country: "India" };
-    try {
-      const providerResponse = await providerFetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(input.latitude)}&lon=${encodeURIComponent(input.longitude)}`, { headers: { "User-Agent": "SehatLine/1.0" } });
-      if (providerResponse.ok) {
-        const payload = await providerResponse.json();
-        location = { ...location, ...payload.address, displayName: payload.display_name };
-      }
-    } catch { /* location remains city default */ }
-    sendJson(response, 200, location);
-    return true;
+    const input = await readJson(request), latitude = optionalNumber(input.latitude), longitude = optionalNumber(input.longitude);
+    if (latitude == null || longitude == null) { sendError(response, 422, "Valid coordinates are required"); return true; }
+    if (!locationApiKey) {
+      try {
+        const fallbackResponse = await providerFetch(`https://nominatim.openstreetmap.org/reverse?format=json&countrycodes=in&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`, { headers:{ "User-Agent":"SehatLine/1.0" } });
+        if (!fallbackResponse.ok) throw new Error();
+        const payload = await fallbackResponse.json(), address = payload.address || {};
+        sendJson(response, 200, { placeId:String(payload.place_id || ""), name:address.village || address.town || address.city || address.suburb || "Current location", formattedAddress:payload.display_name || "", latitude, longitude, country:address.country || "India", countryCode:String(address.country_code || "in").toUpperCase(), state:address.state || "", district:address.state_district || address.county || "", city:address.city || "", town:address.town || "", village:address.village || "", locality:address.suburb || address.village || address.town || address.city || "", sublocality:address.neighbourhood || "", postalCode:address.postcode || "" }); return true;
+      } catch { sendError(response, 503, "Location detection is temporarily unavailable"); return true; }
+    }
+    const providerResponse = await providerFetch(`https://geocode.googleapis.com/v4/geocode/location?location.latitude=${encodeURIComponent(latitude)}&location.longitude=${encodeURIComponent(longitude)}&languageCode=en&regionCode=in`, { headers: { "X-Goog-Api-Key": locationApiKey, "X-Goog-FieldMask": "results.placeId,results.formattedAddress,results.addressComponents,results.location" } });
+    if (!providerResponse.ok) { runtimeLogger.error?.(`[SehatLine Location] Google reverse geocoding failed (${providerResponse.status})`); sendJson(response, 503, { error:{ code:"GOOGLE_GEOCODING_FAILED", message:"Unable to identify your current location" } }); return true; }
+    const payload = await providerResponse.json(), location = normalizeGooglePlace(payload.results?.[0] || {});
+    location.latitude = latitude; location.longitude = longitude;
+    if (location.countryCode && location.countryCode !== "IN") { sendError(response, 422, "Your current location is outside India"); return true; }
+    sendJson(response, 200, location); return true;
   }
   const adminDataRoutes = new Map([
     ["/api/admin/doctors", ["doctor_management", "doctor_verification"]],
@@ -1276,6 +1575,154 @@ async function routeApi(request, response, url, store, runtime = {}) {
     sendJson(response, 200, { verified: true, status: "paid", paymentId, paidAt, applicationId: doctor.id });
     return true;
   }
+
+  const publicEcosystemMatch = pathname.match(/^\/api\/(public-care\/facilities|health-support\/(?:locations|schemes|insurance))(?:\/([^/]+))?$/);
+  if (publicEcosystemMatch && method === "GET") {
+    const collection = ecosystemCollections[publicEcosystemMatch[1]];
+    const id = publicEcosystemMatch[2] ? decodeURIComponent(publicEcosystemMatch[2]) : "";
+    if (id) {
+      const item = (database[collection] || []).find(entry => entry.id === id && entry.active !== false);
+      if (!item) { sendError(response, 404, "Healthcare resource not found"); return true; }
+      sendJson(response, 200, item);
+    } else {
+      sendJson(response, 200, ecosystemList(database[collection], searchParams));
+    }
+    return true;
+  }
+
+  const adminEcosystemMatch = pathname.match(/^\/api\/admin\/(public-facilities|health-support-locations|health-support\/locations|government-schemes|insurance-plans|insurance)(?:\/([^/]+))?(?:\/(status))?$/);
+  if (adminEcosystemMatch) {
+    const auth = await adminAuth.authenticate(request);
+    if (auth.admin.mustChangePassword) throw Object.assign(new Error("Password change required"), { statusCode: 403, code: "PASSWORD_CHANGE_REQUIRED" });
+    adminAuth.requirePermission(auth, "dashboard");
+    if (!["super_admin", "admin", "verification_admin"].includes(auth.admin.role)) throw Object.assign(new Error("Healthcare Network management permission required"), { statusCode: 403, code: "PERMISSION_DENIED" });
+    const collection = ({ "public-facilities": "publicFacilities", "health-support-locations": "healthSupportLocations", "health-support/locations": "healthSupportLocations", "government-schemes": "governmentSchemes", "insurance-plans": "insurancePlans", insurance: "insurancePlans" })[adminEcosystemMatch[1]];
+    const id = adminEcosystemMatch[2] ? decodeURIComponent(adminEcosystemMatch[2]) : "";
+    const statusAction = adminEcosystemMatch[3] === "status";
+    if (method === "GET") {
+      if (id && !(database[collection] || []).some(item => item.id === id)) { sendError(response, 404, "Healthcare resource not found"); return true; }
+      sendJson(response, 200, id ? (database[collection] || []).find(item => item.id === id) : ecosystemList(database[collection], searchParams, true));
+      return true;
+    }
+    adminAuth.verifyCsrf(request, auth);
+    if (method === "POST" && !id) {
+      const input = await readJson(request);
+      const item = normalizeEcosystemInput(input, collection, { id: slugId(collection.replace(/[A-Z]/g, value => `-${value.toLowerCase()}`)), createdAt: new Date().toISOString(), createdBy: auth.admin.id });
+      const validationError = validateEcosystemItem(item, collection);
+      if (validationError) { sendError(response, 422, validationError); return true; }
+      await store.mutate(data => { data[collection] ||= []; data[collection].unshift(item); });
+      sendJson(response, 201, item); return true;
+    }
+    const existing = (database[collection] || []).find(item => item.id === id);
+    if (!existing) { sendError(response, 404, "Healthcare resource not found"); return true; }
+    if (["PUT", "PATCH"].includes(method)) {
+      const input = await readJson(request);
+      const updated = normalizeEcosystemInput(statusAction ? { active: input.active } : input, collection, existing);
+      const validationError = validateEcosystemItem(updated, collection);
+      if (validationError) { sendError(response, 422, validationError); return true; }
+      await store.mutate(data => Object.assign(data[collection].find(item => item.id === id), updated));
+      sendJson(response, 200, updated); return true;
+    }
+    if (method === "DELETE") {
+      await store.mutate(data => { data[collection] = data[collection].filter(item => item.id !== id); });
+      sendJson(response, 200, { deleted: true, id }); return true;
+    }
+  }
+
+  const savedItemMatch = pathname.match(/^\/api\/patient\/saved\/(public-facility|health-support|scheme|insurance)\/([^/]+)$/);
+  if (savedItemMatch && ["POST", "DELETE"].includes(method)) {
+    const patientId = requirePatient();
+    const relation = ({ "public-facility": "savedPublicFacilities", "health-support": "savedHealthSupportLocations", scheme: "savedSchemes", insurance: "savedInsurancePlans" })[savedItemMatch[1]];
+    const collection = ({ "public-facility": "publicFacilities", "health-support": "healthSupportLocations", scheme: "governmentSchemes", insurance: "insurancePlans" })[savedItemMatch[1]];
+    const itemId = decodeURIComponent(savedItemMatch[2]);
+    if (method === "POST" && !(database[collection] || []).some(item => item.id === itemId && item.active !== false)) { sendError(response, 404, "Active healthcare item not found"); return true; }
+    let saved = false;
+    await store.mutate(data => {
+      const patient = data.users.find(item => item.id === patientId);
+      if (!patient) throw Object.assign(new Error("Patient profile not found"), { statusCode: 404 });
+      patient[relation] ||= [];
+      if (method === "POST" && !patient[relation].includes(itemId)) patient[relation].push(itemId);
+      if (method === "DELETE") patient[relation] = patient[relation].filter(id => id !== itemId);
+      saved = patient[relation].includes(itemId);
+    });
+    sendJson(response, 200, { id: itemId, saved }); return true;
+  }
+  if (pathname === "/api/patient/saved-items" && method === "GET") {
+    const patientId = requirePatient();
+    const patient = database.users.find(item => item.id === patientId);
+    if (!patient) { sendError(response, 404, "Patient profile not found"); return true; }
+    const groups = [
+      ["PUBLIC_FACILITY", "savedPublicFacilities", "publicFacilities"],
+      ["JAN_AUSHADHI", "savedHealthSupportLocations", "healthSupportLocations"],
+      ["GOVERNMENT_SCHEME", "savedSchemes", "governmentSchemes"],
+      ["INSURANCE", "savedInsurancePlans", "insurancePlans"]
+    ];
+    const items = groups.flatMap(([itemType, relation, collection]) => (patient[relation] || []).map(itemId => {
+      const item = (database[collection] || []).find(entry => entry.id === itemId);
+      return item?.active === false || !item ? null : { id: `${itemType}:${itemId}`, itemType, itemId, item };
+    }).filter(Boolean));
+    sendJson(response, 200, { items, total: items.length }); return true;
+  }
+  if (pathname === "/api/patient/saved-items" && method === "POST") {
+    const patientId = requirePatient(), input = await readJson(request), itemType = String(input.itemType || "").toUpperCase(), itemId = String(input.itemId || "");
+    const config = ({ PUBLIC_FACILITY: ["savedPublicFacilities", "publicFacilities"], JAN_AUSHADHI: ["savedHealthSupportLocations", "healthSupportLocations"], GOVERNMENT_SCHEME: ["savedSchemes", "governmentSchemes"], INSURANCE: ["savedInsurancePlans", "insurancePlans"] })[itemType];
+    if (!config || !itemId) { sendError(response, 422, "Valid itemType and itemId are required"); return true; }
+    if (!(database[config[1]] || []).some(item => item.id === itemId && item.active !== false)) { sendError(response, 404, "Active healthcare item not found"); return true; }
+    await store.mutate(data => { const patient = data.users.find(item => item.id === patientId); if (!patient) throw Object.assign(new Error("Patient profile not found"), { statusCode: 404 }); patient[config[0]] ||= []; if (!patient[config[0]].includes(itemId)) patient[config[0]].push(itemId); });
+    sendJson(response, 200, { id: `${itemType}:${itemId}`, itemType, itemId, saved: true }); return true;
+  }
+  const genericSavedDelete = pathname.match(/^\/api\/patient\/saved-items\/(PUBLIC_FACILITY|JAN_AUSHADHI|GOVERNMENT_SCHEME|INSURANCE):([^/]+)$/i);
+  if (genericSavedDelete && method === "DELETE") {
+    const patientId = requirePatient(), itemType = genericSavedDelete[1].toUpperCase(), itemId = decodeURIComponent(genericSavedDelete[2]);
+    const relation = ({ PUBLIC_FACILITY: "savedPublicFacilities", JAN_AUSHADHI: "savedHealthSupportLocations", GOVERNMENT_SCHEME: "savedSchemes", INSURANCE: "savedInsurancePlans" })[itemType];
+    await store.mutate(data => { const patient = data.users.find(item => item.id === patientId); if (!patient) throw Object.assign(new Error("Patient profile not found"), { statusCode: 404 }); patient[relation] = (patient[relation] || []).filter(id => id !== itemId); });
+    sendJson(response, 200, { itemType, itemId, saved: false }); return true;
+  }
+  if (pathname === "/api/patient/payments/order" && method === "POST") {
+    const patientId = requirePatient();
+    if (!paymentGatewayConfigured) { sendError(response, 503, "Online appointment payment is not configured"); return true; }
+    const input = await readJson(request);
+    const doctor = database.doctors.find(item => item.id === String(input.doctorId || "") && verified(item));
+    const date = String(input.date || "");
+    const time = String(input.time || "").slice(0, 5);
+    const schedule = database.doctorSchedules?.[doctor?.id]?.[date];
+    const slot = schedule?.slots?.find(item => item.time === time && item.available !== false);
+    if (!doctor || !slot) { sendError(response, 409, "This appointment slot is no longer available"); return true; }
+    const existingReservation = activePaymentReservation(database, doctor.id, date, time);
+    if (existingReservation && existingReservation.patientId !== patientId) { sendError(response, 409, "This slot is being paid for by another patient"); return true; }
+    const amountPaise = Math.max(100, Math.round(numeric(doctor.fee) * 100));
+    const order = await createPatientBookingOrder({ doctor, patientId, date, time, amountPaise }, paymentGateway, providerFetch);
+    await store.mutate(data => {
+      data.patientPaymentOrders ||= {};
+      data.patientPaymentOrders[order.id] = { orderId: order.id, patientId, doctorId: doctor.id, date, time, amountPaise, currency: "INR", status: "created", booking: { ...input.booking, patientId, doctorId: doctor.id, date, time }, expiresAt: Date.now() + PATIENT_PAYMENT_RESERVATION_MS, createdAt: new Date().toISOString() };
+    });
+    sendJson(response, 201, { keyId: paymentGateway.keyId, orderId: order.id, amount: amountPaise, currency: "INR", doctor: publicDoctor(doctor) });
+    return true;
+  }
+  if (pathname === "/api/patient/payments/verify" && method === "POST") {
+    const patientId = requirePatient();
+    if (!paymentGatewayConfigured) { sendError(response, 503, "Online appointment payment is not configured"); return true; }
+    const input = await readJson(request);
+    const orderId = String(input.razorpay_order_id || "");
+    const paymentId = String(input.razorpay_payment_id || "");
+    const signature = String(input.razorpay_signature || "");
+    const order = database.patientPaymentOrders?.[orderId];
+    if (!order || order.patientId !== patientId || !paymentId || !verifyRazorpayPaymentSignature(orderId, paymentId, signature, paymentGateway.keySecret)) {
+      sendError(response, 401, "Appointment payment verification failed"); return true;
+    }
+    const providerPayment = await fetchRazorpayPayment(paymentId, paymentGateway, providerFetch);
+    if (providerPayment.order_id !== orderId || Number(providerPayment.amount) !== Number(order.amountPaise) || providerPayment.currency !== "INR" || providerPayment.status !== "captured") {
+      sendError(response, 409, "Payment has not been captured yet"); return true;
+    }
+    let booking;
+    await store.mutate(data => {
+      const savedOrder = data.patientPaymentOrders?.[orderId];
+      if (savedOrder) booking = commitPaidPatientBooking(data, savedOrder, paymentId);
+    });
+    if (!booking) { sendError(response, 409, "Payment succeeded, but the slot could not be confirmed. Contact SehatLine support with the payment ID."); return true; }
+    sendJson(response, 201, booking);
+    return true;
+  }
   if (pathname === "/api/payments/razorpay/webhook" && method === "POST") {
     if (!paymentGateway.webhookSecret) { sendError(response, 503, "Payment webhook is not configured"); return true; }
     const rawBody = await readText(request);
@@ -1293,6 +1740,13 @@ async function routeApi(request, response, url, store, runtime = {}) {
           && String(paymentEntity.currency) === DOCTOR_LAUNCH_PLAN.currency
           && paymentEntity.status === "captured") {
           saved.onboarding.payment = { ...saved.onboarding.payment, status: "paid", paymentId: paymentEntity.id || saved.onboarding.payment.paymentId, paidAt: new Date().toISOString(), webhookVerified: true };
+        }
+        const patientOrder = data.patientPaymentOrders?.[orderId];
+        if (patientOrder
+          && Number(paymentEntity.amount) === Number(patientOrder.amountPaise)
+          && paymentEntity.currency === "INR"
+          && paymentEntity.status === "captured") {
+          commitPaidPatientBooking(data, patientOrder, paymentEntity.id);
         }
       });
     }
@@ -1541,6 +1995,7 @@ async function routeApi(request, response, url, store, runtime = {}) {
 
   if ((pathname === "/api/bookings" || pathname === "/api/appointments") && method === "GET") {
     let bookings = database.bookings;
+    if (authenticatedPatientId) bookings = bookings.filter(item => item.patientId === authenticatedPatientId);
     if (searchParams.get("patientId")) bookings = bookings.filter(item => item.patientId === searchParams.get("patientId"));
     if (searchParams.get("doctorId")) bookings = bookings.filter(item => item.doctorId === searchParams.get("doctorId"));
     sendJson(response, 200, bookings);
@@ -1548,8 +2003,17 @@ async function routeApi(request, response, url, store, runtime = {}) {
   }
   if ((pathname === "/api/bookings" || pathname === "/api/appointments") && method === "POST") {
     const input = await readJson(request);
-    const booking = normalizeBooking(input, database);
+    const booking = normalizeBooking({
+      ...input,
+      patientId: authenticatedPatientId || input.patientId,
+      paymentStatus: undefined,
+      paymentVerified: false
+    }, database);
     if (booking.providerType === "doctor") {
+      if (input.paymentMode === "online") {
+        sendError(response, 422, "Use the secure online payment checkout before confirming this appointment");
+        return true;
+      }
       const schedule = database.doctorSchedules?.[booking.doctorId]?.[booking.date];
       const queue = ensureDoctorQueue(database, booking.doctorId, booking.date);
       if (!schedule) {
@@ -1557,6 +2021,11 @@ async function routeApi(request, response, url, store, runtime = {}) {
         return true;
       }
       const requestedTime = String(booking.time || "").slice(0, 5);
+      const reservation = activePaymentReservation(database, booking.doctorId, booking.date, requestedTime);
+      if (reservation && reservation.patientId !== booking.patientId) {
+        sendError(response, 409, "This appointment slot is being paid for by another patient");
+        return true;
+      }
       const selectedSlot = schedule.slots?.find(slot => slot.time === requestedTime && slot.available !== false);
       if (!selectedSlot) {
         sendError(response, 409, "This appointment slot is no longer available");
@@ -1566,35 +2035,19 @@ async function routeApi(request, response, url, store, runtime = {}) {
         sendError(response, 409, "The doctor's daily appointment capacity is full");
         return true;
       }
-      booking.token = `T${String((queue.issued || 0) + 1).padStart(3, "0")}`;
     }
+    let committed = true;
     await store.mutate(data => {
-      data.bookings.unshift(booking);
-      if (booking.providerType === "doctor") {
-        const queue = ensureDoctorQueue(data, booking.doctorId, booking.date);
-        const schedule = data.doctorSchedules?.[booking.doctorId]?.[booking.date];
-        const selectedSlot = schedule?.slots?.find(slot => slot.time === String(booking.time || "").slice(0, 5));
-        if (selectedSlot) selectedSlot.available = false;
-        queue.issued += 1;
-        queue.capacity ||= schedule?.capacity || 0;
-        queue.remaining = Math.max(0, Number(queue.capacity || 0) - Number(queue.issued || 0));
-        if (schedule) {
-          schedule.bookedCount = queue.issued;
-          schedule.remainingTokens = queue.remaining;
-        }
-        queue.waiting.push({ token: booking.token, name: booking.patientName, reason: booking.reason || "Consultation", appointmentId: booking.id, checkedIn: true, wait: queue.waiting.length * queue.expectedMinutes });
+      if (booking.providerType === "doctor") committed = commitDoctorBooking(data, booking);
+      else {
+        data.bookings.unshift(booking);
+        data.notifications.unshift(normalizeNotification({ title: "Lab booking confirmed", message: `${booking.providerName} is booked for ${booking.date} at ${booking.time}.`, audience: "Single patient", icon: "check-circle" }));
       }
-      if (booking.providerType === "doctor") {
-        const workspace = doctorWorkspaceFor(data, booking.doctorId);
-        workspace.appointments.push(doctorAppointmentFromBooking(booking, workspace));
-      }
-      data.notifications.unshift(normalizeNotification({
-        title: booking.providerType === "lab" ? "Lab booking confirmed" : "Appointment confirmed",
-        message: `${booking.providerName} is booked for ${booking.date} at ${booking.time}.`,
-        audience: "Single patient",
-        icon: "check-circle"
-      }));
     });
+    if (!committed) {
+      sendError(response, 409, "This appointment slot is no longer available");
+      return true;
+    }
     sendJson(response, 201, booking);
     return true;
   }
@@ -1602,6 +2055,7 @@ async function routeApi(request, response, url, store, runtime = {}) {
   if (bookingMatch && method === "GET") {
     const booking = database.bookings.find(item => item.id === decodeURIComponent(bookingMatch[1]));
     if (!booking) sendError(response, 404, "Booking not found");
+    else if (authenticatedPatientId && booking.patientId !== authenticatedPatientId) sendError(response, 403, "This appointment belongs to another patient");
     else sendJson(response, 200, booking);
     return true;
   }
@@ -1611,7 +2065,17 @@ async function routeApi(request, response, url, store, runtime = {}) {
     await store.mutate(data => {
       const index = data.bookings.findIndex(item => item.id === decodeURIComponent(bookingMatch[1]));
       if (index < 0) return;
-      updated = normalizeBooking({ ...data.bookings[index], ...input, id: data.bookings[index].id }, data);
+      if (authenticatedPatientId && data.bookings[index].patientId !== authenticatedPatientId) return;
+      const current = data.bookings[index];
+      updated = normalizeBooking({
+        ...current,
+        ...input,
+        id: current.id,
+        patientId: current.patientId,
+        paymentMode: current.paymentMode,
+        paymentStatus: current.paymentStatus,
+        paymentVerified: current.paymentVerified
+      }, data);
       data.bookings[index] = updated;
       const doctorAppointment = updated.doctorId ? doctorWorkspaceFor(data, updated.doctorId).appointments.find(item => item.id === updated.id) : null;
       if (doctorAppointment) Object.assign(doctorAppointment, doctorAppointmentFromBooking(updated, data.doctorWorkspace), { id: updated.id });
@@ -1624,6 +2088,7 @@ async function routeApi(request, response, url, store, runtime = {}) {
     let removed;
     await store.mutate(data => {
       const index = data.bookings.findIndex(item => item.id === decodeURIComponent(bookingMatch[1]));
+      if (index >= 0 && authenticatedPatientId && data.bookings[index].patientId !== authenticatedPatientId) return;
       if (index >= 0) removed = data.bookings.splice(index, 1)[0];
       if (removed?.doctorId) {
         const workspace = doctorWorkspaceFor(data, removed.doctorId);
@@ -1659,15 +2124,68 @@ async function routeApi(request, response, url, store, runtime = {}) {
   if (queueMatch && method === "GET") {
     const doctorId = decodeURIComponent(queueMatch[1]);
     const requestedDate = String(searchParams.get("date") || new Date().toISOString().slice(0, 10));
+    const token = String(searchParams.get("token") || "").trim();
+    if (!token) {
+      sendError(response, 422, "An appointment token is required to view the live queue");
+      return true;
+    }
+    const booking = database.bookings.find(item => item.doctorId === doctorId
+      && item.date === requestedDate
+      && item.token === token
+      && (!authenticatedPatientId || item.patientId === authenticatedPatientId));
+    if (!booking) {
+      sendError(response, 404, "No matching appointment was found for this queue token");
+      return true;
+    }
     let queue = database.queues?.[doctorId];
     if (queue && queue.date !== requestedDate) {
       await store.mutate(data => { queue = ensureDoctorQueue(data, doctorId, requestedDate); });
     }
     if (!queue) sendError(response, 404, "Queue not found");
     else {
-      const token = searchParams.get("token");
-      const ahead = token ? queue.waiting.findIndex(item => item.token === token) : -1;
-      sendJson(response, 200, { ...queue, remaining: Math.max(0, Number(queue.capacity || 0) - Number(queue.issued || 0)), live: token ? { patientStatus: ahead >= 0 ? "waiting" : queue.current?.token === token ? "in-progress" : "unknown", ahead: Math.max(0, ahead) } : undefined });
+      const waitingIndex = queue.waiting.findIndex(item => item.token === token && item.appointmentId === booking.id);
+      const isCurrent = queue.current?.token === token && queue.current?.appointmentId === booking.id;
+      const bookingStatus = String(booking.status || "").toLowerCase();
+      const patientStatus = isCurrent
+        ? "in-progress"
+        : waitingIndex >= 0
+          ? "waiting"
+          : bookingStatus === "completed"
+            ? "completed"
+            : queue.status === "closed"
+              ? "clinic-closed"
+              : "not-in-queue";
+      const ahead = isCurrent ? 0 : waitingIndex >= 0 ? waitingIndex + (queue.current ? 1 : 0) : 0;
+      const expectedMinutes = Math.max(1, numeric(queue.expectedMinutes, 15));
+      const etaMinutes = patientStatus === "in-progress"
+        ? 0
+        : patientStatus === "waiting" && queue.status === "live"
+          ? Math.max(0, ahead * expectedMinutes + numeric(queue.delayMinutes))
+          : null;
+      const message = patientStatus === "in-progress"
+        ? "Your consultation is in progress."
+        : patientStatus === "completed"
+          ? "Your consultation is complete."
+          : queue.status === "paused"
+            ? "The clinic queue is paused. Your token remains secured."
+            : queue.status === "closed"
+              ? "The clinic queue has not started or is closed for the day."
+              : patientStatus === "waiting"
+                ? ahead === 0 ? "You are next. Please stay near the clinic." : `${ahead} patient${ahead === 1 ? "" : "s"} ahead of your token.`
+                : "Your token is not currently waiting in the live queue.";
+      sendJson(response, 200, {
+        doctorId,
+        date: queue.date,
+        status: queue.status,
+        capacity: numeric(queue.capacity),
+        issued: numeric(queue.issued),
+        remaining: Math.max(0, Number(queue.capacity || 0) - Number(queue.issued || 0)),
+        currentToken: queue.current?.token || queue.currentToken || "—",
+        expectedMinutes,
+        delayMinutes: numeric(queue.delayMinutes),
+        updatedAt: queue.updatedAt,
+        live: { token, patientStatus, ahead, etaMinutes, message }
+      });
     }
     return true;
   }
@@ -1698,6 +2216,7 @@ async function routeApi(request, response, url, store, runtime = {}) {
         { label: "Today's income", value: `₹${income.todayIncome.toLocaleString("en-IN")}`, trend: `${income.completedToday} completed`, icon: "rupee", tone: "violet" }
       ],
       income,
+      collections: income.collections,
       queue
     });
     return true;
@@ -1742,7 +2261,8 @@ async function routeApi(request, response, url, store, runtime = {}) {
   if (doctorSlotsMatch && method === "GET") {
     const doctorId = decodeURIComponent(doctorSlotsMatch[1]);
     const schedule = database.doctorSchedules?.[doctorId]?.[searchParams.get("date")];
-    sendJson(response, 200, schedule || { doctorId, date: searchParams.get("date"), capacity: 0, slots: [] });
+    if (!schedule) sendJson(response, 200, { doctorId, date: searchParams.get("date"), capacity: 0, slots: [], paymentConfigured: paymentGatewayConfigured });
+    else sendJson(response, 200, { ...schedule, slots: (schedule.slots || []).map(slot => ({ time: slot.time, available: slot.available !== false, status: slot.available === false ? "booked" : "available" })), paymentConfigured: paymentGatewayConfigured });
     return true;
   }
   if (pathname === "/api/doctor/appointments" && method === "GET") {
@@ -1766,12 +2286,21 @@ async function routeApi(request, response, url, store, runtime = {}) {
   if (doctorAppointmentMatch && method === "PATCH") {
     const doctorId = requireDoctor();
     const input = await readJson(request);
+    const {
+      paymentMode: ignoredPaymentMode,
+      paymentStatus: ignoredPaymentStatus,
+      paymentVerified: ignoredPaymentVerified,
+      paymentId: ignoredPaymentId,
+      paymentOrderId: ignoredPaymentOrderId,
+      amount: ignoredAmount,
+      ...safeInput
+    } = input;
     let appointment;
     await store.mutate(data => {
       appointment = doctorWorkspaceFor(data, doctorId).appointments.find(item => item.id === decodeURIComponent(doctorAppointmentMatch[1]));
-      if (appointment) Object.assign(appointment, input, { updatedAt: new Date().toISOString() });
+      if (appointment) Object.assign(appointment, safeInput, { updatedAt: new Date().toISOString() });
       const booking = data.bookings.find(item => item.id === decodeURIComponent(doctorAppointmentMatch[1]) && item.doctorId === doctorId);
-      if (booking) Object.assign(booking, input, { updatedAt: new Date().toISOString() });
+      if (booking) Object.assign(booking, safeInput, { updatedAt: new Date().toISOString() });
     });
     if (!appointment) sendError(response, 404, "Appointment not found");
     else sendJson(response, 200, appointment);
@@ -1957,11 +2486,13 @@ async function routeApi(request, response, url, store, runtime = {}) {
       else data.users.push(user);
     });
     identitySessions.delete(verification.id);
+    const patientSessionToken = `demo-${randomUUID()}`;
+    patientSessions.set(patientSessionToken, user.id);
     sendJson(response, 200, {
       verified: true,
       sandbox: true,
       identityStatus: "sandbox-verified",
-      token: `demo-${randomUUID()}`,
+      token: patientSessionToken,
       user
     });
     return true;
@@ -2137,7 +2668,11 @@ async function routeApi(request, response, url, store, runtime = {}) {
     }
     const doctor = database.doctors.find(item => item.id === doctorId);
     if (!doctor) { sendError(response, 404, "Assigned doctor not found"); return true; }
-    const date = String(searchParams.get("date") || input.date || new Date().toISOString().slice(0, 10));
+    const receptionistAppointment = pathname.match(/^\/api\/receptionist\/appointments\/([^/]+)$/);
+    const appointmentDate = receptionistAppointment
+      ? database.bookings.find(item => item.id === decodeURIComponent(receptionistAppointment[1]) && item.doctorId === doctorId)?.date
+      : "";
+    const date = String(searchParams.get("date") || input.date || appointmentDate || new Date().toISOString().slice(0, 10));
     const schedule = database.doctorSchedules?.[doctorId]?.[date]
       || database.doctorWorkspaces?.[doctorId]?.schedules?.find(item => item.date === date)
       || (database.doctorWorkspace?.doctorId === doctorId ? database.doctorWorkspace.schedules?.find(item => item.date === date) : null);
@@ -2146,7 +2681,8 @@ async function routeApi(request, response, url, store, runtime = {}) {
     if (pathname === "/api/receptionist/dashboard" && method === "GET") {
       const appointments = database.bookings.filter(item => item.doctorId === doctorId && item.date === date).map(item => doctorAppointmentFromBooking(item, { appointments: [] }));
       const patients = database.users.filter(item => appointments.some(appointment => phoneDigits(appointment.phone) === phoneDigits(item.phone)));
-      sendJson(response, 200, { doctor: publicDoctor(doctor), doctors: [publicDoctor(doctor)], appointments, queue, patients, metrics: { totalAppointments: appointments.length, checkedIn: appointments.filter(item => ["checked-in", "in-progress"].includes(item.status)).length, waiting: queue.waiting.length, completed: appointments.filter(item => item.status === "completed").length, remainingTokens: Math.max(0, Number(queue.capacity || 0) - Number(queue.issued || 0)) } });
+      const collections = doctorCollectionSnapshot(database, doctorId, date);
+      sendJson(response, 200, { doctor: publicDoctor(doctor), doctors: [publicDoctor(doctor)], appointments, queue, patients, collections, metrics: { totalAppointments: appointments.length, checkedIn: appointments.filter(item => ["checked-in", "in-progress"].includes(item.status)).length, waiting: queue.waiting.length, completed: appointments.filter(item => item.status === "completed").length, remainingTokens: Math.max(0, Number(queue.capacity || 0) - Number(queue.issued || 0)) } });
       return true;
     }
     if (pathname === "/api/receptionist/patients" && method === "GET") {
@@ -2155,16 +2691,21 @@ async function routeApi(request, response, url, store, runtime = {}) {
       sendJson(response, 200, patients);
       return true;
     }
-    const receptionistAppointment = pathname.match(/^\/api\/receptionist\/appointments\/([^/]+)$/);
     if (receptionistAppointment && method === "PATCH") {
       let updated;
       await store.mutate(data => {
         const booking = data.bookings.find(item => item.id === decodeURIComponent(receptionistAppointment[1]) && item.doctorId === doctorId);
         if (!booking) return;
         booking.status = input.status || booking.status;
+        if (input.paymentStatus === "paid" && booking.paymentMode === "cash") {
+          booking.paymentStatus = "paid";
+          booking.paymentVerified = true;
+          booking.cashCollectedAt = new Date().toISOString();
+          booking.cashCollectedBy = auth.admin.adminId;
+        }
         updated = booking;
         const queueEntry = ensureDoctorQueue(data, doctorId, booking.date).waiting.find(item => item.appointmentId === booking.id);
-        if (queueEntry) queueEntry.checkedIn = booking.status === "checked-in";
+        if (queueEntry) queueEntry.checkedIn = String(booking.status || "").toLowerCase() === "checked-in";
       });
       if (!updated) sendError(response, 404, "Appointment not found"); else sendJson(response, 200, updated);
       return true;
@@ -2180,7 +2721,7 @@ async function routeApi(request, response, url, store, runtime = {}) {
       if (!schedule) { sendError(response, 409, "The doctor has not published a schedule for this date"); return true; }
       const nextSlot = schedule.slots.find(slot => slot.available);
       if (!nextSlot || queue.issued >= schedule.capacity) { sendError(response, 409, "The doctor's daily capacity is full"); return true; }
-      const booking = normalizeBooking({ ...input, doctorId, date, time: nextSlot.time, providerType: "doctor", status: "checked-in" }, database);
+      const booking = normalizeBooking({ ...input, doctorId, date, time: nextSlot.time, providerType: "doctor", status: "checked-in", paymentMode: "cash" }, database);
       booking.token = `T${String(queue.issued + 1).padStart(3, "0")}`;
       await store.mutate(data => {
         data.bookings.unshift(booking);
@@ -2348,6 +2889,8 @@ export async function createSehatLineServer(options = {}) {
         requireDoctorAuth: production || options.requireDoctorAuth === true,
         uploadRoot: options.uploadRoot,
         providerFetch: options.providerFetch,
+        googleMapsServerApiKey: options.googleMapsServerApiKey,
+        logger,
         razorpayKeyId: options.razorpayKeyId,
         razorpayKeySecret: options.razorpayKeySecret,
         razorpayWebhookSecret: options.razorpayWebhookSecret,

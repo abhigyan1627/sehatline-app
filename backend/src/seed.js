@@ -9,6 +9,10 @@ export function createSeedDatabase() {
     adminSessions: [],
     adminAuditLogs: [],
     adminLoginAttempts: [],
+    publicFacilities: [],
+    healthSupportLocations: [],
+    governmentSchemes: [],
+    insurancePlans: [],
     doctors: [
       {
         id: "d1",
@@ -483,6 +487,10 @@ export function createSeedDatabase() {
   database.users = [];
   database.reports = [];
   database.notifications = [];
+  database.publicFacilities = [];
+  database.healthSupportLocations = [];
+  database.governmentSchemes = [];
+  database.insurancePlans = [];
   database.queues = {};
   database.doctorWorkspace = {
     doctorId: null,

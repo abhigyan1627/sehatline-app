@@ -11,8 +11,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/motion/sehatline-motion.css?v=2">
-  <link rel="stylesheet" href="./styles.css?v=6">
+  <link rel="stylesheet" href="/assets/motion/sehatline-motion.css?v=3">
+  <link rel="stylesheet" href="./styles.css?v=8">
   <link rel="stylesheet" href="/assets/footer/site-footer.css?v=3">
 </head>
 <body>
@@ -115,6 +115,11 @@
         <button class="nav-item" data-view="users">
           <span class="nav-icon">◉</span><span>Users</span>
         </button>
+        <p class="nav-label">Healthcare Network</p>
+        <button class="nav-item" data-view="healthcare-network" data-network-open="publicFacilities"><span class="nav-icon">⚕</span><span>Public Facilities</span></button>
+        <button class="nav-item" data-view="healthcare-network" data-network-open="healthSupportLocations"><span class="nav-icon">✚</span><span>Jan Aushadhi</span></button>
+        <button class="nav-item" data-view="healthcare-network" data-network-open="governmentSchemes"><span class="nav-icon">◇</span><span>Government Schemes</span></button>
+        <button class="nav-item" data-view="healthcare-network" data-network-open="insurancePlans"><span class="nav-icon">▣</span><span>Insurance</span></button>
         <p class="nav-label">Growth</p>
         <button class="nav-item" data-view="analytics">
           <span class="nav-icon">↗</span><span>Analytics</span>
@@ -349,6 +354,27 @@
         </div>
       </section>
 
+      <section class="view" id="view-healthcare-network">
+        <div class="section-heading"><div><p class="eyebrow">Healthcare Network</p><h2>Public care & health support</h2><p>Publish verified facility, Jan Aushadhi, scheme and insurance information.</p></div></div>
+        <div class="network-admin-tabs">
+          <button class="active" data-network-tab="publicFacilities">Public Facilities</button><button data-network-tab="healthSupportLocations">Jan Aushadhi / Support</button><button data-network-tab="governmentSchemes">Government Schemes</button><button data-network-tab="insurancePlans">Insurance</button>
+        </div>
+        <div class="healthcare-counter-grid">
+          <article><span class="metric-icon green">⚕</span><div><strong data-metric="publicFacilities">—</strong><small>Public facilities</small></div></article>
+          <article><span class="metric-icon cyan">✚</span><div><strong data-metric="healthSupportLocations">—</strong><small>Jan Aushadhi centers</small></div></article>
+          <article><span class="metric-icon violet">◇</span><div><strong data-metric="governmentSchemes">—</strong><small>Government schemes</small></div></article>
+          <article><span class="metric-icon blue">▣</span><div><strong data-metric="insurancePlans">—</strong><small>Insurance plans</small></div></article>
+        </div>
+        <div class="network-admin-toolbar panel">
+          <label class="table-search"><span>⌕</span><input id="networkSearch" type="search" placeholder="Search records"></label>
+          <select id="networkTypeFilter" aria-label="Filter by type"><option value="all">All types</option></select>
+          <select id="networkStateFilter" aria-label="Filter by state"><option value="all">All states</option></select>
+          <select id="networkDistrictFilter" aria-label="Filter by district"><option value="all">All districts</option></select>
+          <select id="networkStatusFilter" aria-label="Filter by status"><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="verified">Verified</option><option value="unverified">Unverified</option></select>
+        </div>
+        <div class="panel"><div class="panel-head"><div><p class="eyebrow" id="networkAdminEyebrow">Verified information only</p><h3 id="networkAdminTitle">Public Facilities</h3></div><button class="primary-button" data-network-add>＋ Add Facility</button></div><div class="network-admin-table" id="networkAdminGrid"></div></div>
+      </section>
+
       <section class="view" id="view-notifications">
         <div class="section-heading">
           <div><p class="eyebrow">Patient engagement</p><h2>Notification center</h2><p>Send useful, timely and city-specific updates without creating noise.</p></div>
@@ -422,8 +448,8 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/assets/motion/sehatline-motion.js?v=2"></script>
+  <script src="/assets/motion/sehatline-motion.js?v=3"></script>
   <script src="/assets/footer/site-footer.js?v=3" defer></script>
-  <script type="module" src="./app.js?v=7"></script>
+  <script type="module" src="./app.js?v=9"></script>
 </body>
 </html>

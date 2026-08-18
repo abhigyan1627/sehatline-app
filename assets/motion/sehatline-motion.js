@@ -6,7 +6,7 @@
     ".metric-card", ".quick-action", ".doctor-card", ".lab-card",
     ".appointment-card", ".summary-card", ".analytics-metric",
     ".person-card", ".compact-item", ".timeline-item", ".table-row",
-    ".notification-item", ".patient-mobile-card", ".queue-card"
+    ".notification-item", ".patient-mobile-card", ".queue-card", ".portal"
   ];
   const numberFormatter = new Intl.NumberFormat("en-IN");
 

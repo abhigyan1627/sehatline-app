@@ -42,6 +42,7 @@ export class JsonStore {
       this.data = createSeedDatabase();
       await this.persist();
     }
+    ensureEcosystemCollections(this.data);
     return this.data;
   }
 
@@ -114,6 +115,7 @@ export class MongoStore {
     const existing = await this.model.findById(this.documentId).lean();
     this.data = existing?.data || createSeedDatabase();
     if (!existing) await this.persist();
+    ensureEcosystemCollections(this.data);
     return this.data;
   }
 
@@ -150,3 +152,14 @@ export class MongoStore {
 }
 
 export { defaultDataFile };
+
+function ensureEcosystemCollections(data) {
+  for (const key of ["publicFacilities", "healthSupportLocations", "governmentSchemes", "insurancePlans"]) {
+    if (!Array.isArray(data[key])) data[key] = [];
+  }
+  for (const patient of data.users || []) {
+    for (const key of ["savedPublicFacilities", "savedHealthSupportLocations", "savedSchemes", "savedInsurancePlans"]) {
+      if (!Array.isArray(patient[key])) patient[key] = [];
+    }
+  }
+}

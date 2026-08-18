@@ -137,6 +137,7 @@
     patientSort: "recent",
     queueTimer: null,
     queueSyncTimer: null,
+    liveSyncBusy: false,
     schedule: null,
     pendingApplication: null,
     lastFocused: null,
@@ -424,6 +425,13 @@
       </article>
     `).join("");
 
+    const collections = state.dashboard.collections || state.dashboard.income?.collections || {};
+    $("#doctor-collection-strip").innerHTML = `
+      <article><span class="collection-icon online">${icon("rupee")}</span><span><small>Online received</small><b>₹${Number(collections.onlineAmount || 0).toLocaleString("en-IN")}</b><em>${Number(collections.onlineCount || 0)} paid bookings</em></span></article>
+      <article><span class="collection-icon cash">${icon("rupee")}</span><span><small>Cash collected</small><b>₹${Number(collections.cashAmount || 0).toLocaleString("en-IN")}</b><em>${Number(collections.cashCount || 0)} marked received</em></span></article>
+      <article><span class="collection-icon due">${icon("clock")}</span><span><small>Payment due</small><b>₹${Number(collections.dueAmount || 0).toLocaleString("en-IN")}</b><em>${Number(collections.dueCount || 0)} appointments</em></span></article>
+      <article class="collection-total"><span class="collection-icon">${icon("chart")}</span><span><small>Total collected today</small><b>₹${Number(collections.collectedAmount || 0).toLocaleString("en-IN")}</b><em>Verified online + recorded cash</em></span></article>`;
+
     const items = state.appointments
       .filter(appointment => !["rejected", "no-show"].includes(appointment.status))
       .slice(0, 4);
@@ -503,7 +511,7 @@
           <span class="patient-avatar ${appointment.name.length % 4 === 0 ? "violet" : appointment.name.length % 3 === 0 ? "amber" : "blue"}">${initials(appointment.name)}</span>
           <span><b>${escapeHTML(appointment.name)}</b><small>${escapeHTML(appointment.age)} yrs · ${escapeHTML(appointment.gender)} · ${escapeHTML(appointment.token)}</small><span class="appointment-status ${escapeHTML(appointment.status)}">${escapeHTML(appointment.status.replace("-", " "))}</span></span>
         </div>
-        <div class="appointment-detail"><span>${escapeHTML(appointment.reason)}</span><small>${escapeHTML(appointment.type)}${appointment.note ? " · Note added" : ""}</small></div>
+        <div class="appointment-detail"><span>${escapeHTML(appointment.reason)}</span><small>${escapeHTML(appointment.type)}${appointment.note ? " · Note added" : ""}</small><span class="payment-chip ${escapeHTML(appointment.paymentStatus || "due")}">${appointment.paymentMode === "online" ? "Online" : "Cash"} · ${appointment.paymentStatus === "paid" ? `₹${Number(appointment.amount || 0).toLocaleString("en-IN")} paid` : `₹${Number(appointment.amount || 0).toLocaleString("en-IN")} due`}</span></div>
         <div class="appointment-actions">${appointmentActions(appointment)}</div>
       </article>
     `).join("");
@@ -1577,16 +1585,34 @@
   function startQueueSync() {
     clearInterval(state.queueSyncTimer);
     const sync = async () => {
-      if (!state.authenticated) return;
-      const result = await apiRequest("/api/doctor/queue", {}, state.queue);
-      if (!result?.data || result.fallback) return;
-      const elapsed = state.queue?.elapsedSeconds || 0;
-      state.queue = normalizeLoadedData(result.data, state.queue);
-      if (!Number.isFinite(Number(state.queue.elapsedSeconds))) state.queue.elapsedSeconds = elapsed;
-      renderQueue();
-      renderDashboard();
+      if (!state.authenticated || state.liveSyncBusy || document.hidden) return;
+      state.liveSyncBusy = true;
+      try {
+        const today = localDateValue();
+        const [queueResult, appointmentsResult, dashboardResult] = await Promise.all([
+          apiRequest(`/api/doctor/queue?date=${today}`, {}, state.queue),
+          apiRequest(`/api/doctor/appointments?date=${today}`, {}, state.appointments),
+          apiRequest(`/api/doctor/dashboard?date=${today}`, {}, state.dashboard)
+        ]);
+        if (queueResult?.data && !queueResult.fallback) {
+          const elapsed = state.queue?.elapsedSeconds || 0;
+          state.queue = normalizeLoadedData(queueResult.data, state.queue);
+          if (!Number.isFinite(Number(state.queue.elapsedSeconds))) state.queue.elapsedSeconds = elapsed;
+        }
+        if (appointmentsResult?.data && !appointmentsResult.fallback) {
+          state.appointments = normalizeLoadedData(appointmentsResult.data, state.appointments, "array");
+        }
+        if (dashboardResult?.data && !dashboardResult.fallback) {
+          state.dashboard = normalizeLoadedData(dashboardResult.data, state.dashboard);
+        }
+        renderQueue();
+        renderAppointments();
+        renderDashboard();
+      } finally {
+        state.liveSyncBusy = false;
+      }
     };
-    state.queueSyncTimer = setInterval(sync, 5000);
+    state.queueSyncTimer = setInterval(sync, 6000);
   }
 
   function openNotifications(open = true) {

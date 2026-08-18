@@ -3,6 +3,7 @@
 const appConfig = window.SEHATLINE_CONFIG || { mode: "production", apiBaseUrl: "", allowGuestAccess: false };
 const isProduction = appConfig.mode === "production";
 const apiUrl = (path) => `${String(appConfig.apiBaseUrl || "").replace(/\/+$/, "")}${path}`;
+const indiaStates = ["Andaman and Nicobar Islands","Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chandigarh","Chhattisgarh","Dadra and Nagar Haveli and Daman and Diu","Delhi","Goa","Gujarat","Haryana","Himachal Pradesh","Jammu and Kashmir","Jharkhand","Karnataka","Kerala","Ladakh","Lakshadweep","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram","Nagaland","Odisha","Puducherry","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana","Tripura","Uttar Pradesh","Uttarakhand","West Bengal"];
 
 /* DEMO_DATA_START */
 const seed = {
@@ -263,6 +264,32 @@ const state = {
   appointments: isProduction ? [] : structuredClone(seed.appointments),
   reports: isProduction ? [] : structuredClone(seed.reports),
   notifications: isProduction ? [] : structuredClone(seed.notifications),
+  publicFacilities: [],
+  healthSupportLocations: [],
+  governmentSchemes: [],
+  insurancePlans: [],
+  publicCareFilters: { search: "", state: "", district: "", city: "", block: "", type: "", page:1, pages:1 },
+  ecosystemErrors: {},
+  ecosystemLoading: false,
+  ecosystemFilters: { search:"", state:"", district:"", city:"", block:"", pincode:"", type:"", category:"", page:1, pages:1 },
+  ecosystemSearchTimer: null,
+  selectedHealthcareLocation: (() => { try { return JSON.parse(localStorage.getItem("sehatline-healthcare-location") || "null"); } catch { return null; } })(),
+  locationQuery: "",
+  locationSuggestions: [],
+  locationSearchLoading: false,
+  locationSearchError: "",
+  locationDetecting: false,
+  locationActiveIndex: -1,
+  locationSearchTimer: null,
+  locationRequestId: 0,
+  locationLastQuery: "",
+  locationSessionToken: globalThis.crypto?.randomUUID?.() || String(Date.now()),
+  healthcareRadius: Number(localStorage.getItem("sehatline-healthcare-radius") || 25000),
+  locationStateContext: localStorage.getItem("sehatline-location-state-context") || "",
+  locationMatch: null,
+  detailId: "",
+  savedItems: new Set(),
+  savedRecords: [],
   doctorQuery: "",
   doctorSpecialty: "All",
   doctorMaxFee: 1000,
@@ -440,6 +467,7 @@ async function apiRequest(path, options = {}) {
     if (!response.ok) {
       const error = new Error(payload?.error?.message || `Request failed (${response.status})`);
       error.status = response.status;
+      error.code = payload?.error?.code || "REQUEST_FAILED";
       error.details = payload?.error?.details;
       throw error;
     }
@@ -462,8 +490,9 @@ async function hydrateRemoteData() {
     requests.map(async ([path, key]) => {
       try {
         const payload = await apiRequest(path);
-        const list = Array.isArray(payload) ? payload : payload?.data;
+        const list = Array.isArray(payload) ? payload : payload?.data || payload?.items;
         if (Array.isArray(list)) {
+          delete state.ecosystemErrors[key];
           if (key === "notifications") {
             state[key] = list.map((item) => ({ ...item, copy: item.copy ?? item.message ?? item.body ?? "" }));
           } else if (key === "doctors" || key === "labs") {
@@ -477,6 +506,7 @@ async function hydrateRemoteData() {
           }
         }
       } catch (error) {
+        if (["publicFacilities","healthSupportLocations","governmentSchemes","insurancePlans"].includes(key)) state.ecosystemErrors[key] = error.message || "Information could not be loaded";
         if (isProduction) {
           state[key] = [];
           console.error(`Unable to load production data: ${path}`, error);
@@ -490,7 +520,15 @@ async function hydrateRemoteData() {
 
 function routeFromHash() {
   const route = location.hash.replace(/^#\/?/, "").split("?")[0] || "home";
-  return ["home", "appointments", "ai", "reports", "profile", "doctors", "labs"].includes(route) ? route : "home";
+  const details = [
+    [/^public-care\/([^/]+)$/, "public-care-detail"],
+    [/^health-support\/jan-aushadhi\/([^/]+)$/, "jan-aushadhi-detail"],
+    [/^health-support\/government-schemes\/([^/]+)$/, "scheme-detail"],
+    [/^health-support\/insurance\/([^/]+)$/, "insurance-detail"]
+  ];
+  for (const [pattern,name] of details) { const match = route.match(pattern); if (match) { state.detailId = decodeURIComponent(match[1]); return name; } }
+  state.detailId = "";
+  return ["home", "appointments", "ai", "reports", "profile", "doctors", "labs", "public-care", "health-support", "health-support/jan-aushadhi", "health-support/government-schemes", "health-support/insurance", "health-support/medicines"].includes(route) ? route : "home";
 }
 
 function routeRequiresAuth(route) {
@@ -507,13 +545,14 @@ function navigate(route) {
     window.scrollTo({ top: 0, behavior: "smooth" });
     return;
   }
+  if (["health-support/jan-aushadhi","health-support/government-schemes","health-support/insurance"].includes(route) && route !== state.route) state.ecosystemFilters = { search:"",state:"",district:"",city:"",block:"",pincode:"",type:"",category:"",page:1,pages:1 };
   location.hash = `#/${route}`;
 }
 
 function renderHeader() {
   const header = document.querySelector("#appHeader");
   const unread = state.notifications.some((notification) => notification.unread);
-  const subRoute = ["doctors", "labs"].includes(state.route);
+  const subRoute = ["doctors", "labs", "public-care", "public-care-detail", "health-support", "health-support/jan-aushadhi", "jan-aushadhi-detail", "health-support/government-schemes", "scheme-detail", "health-support/insurance", "insurance-detail", "health-support/medicines"].includes(state.route);
   header.innerHTML = `
     <div class="header-left">
       ${subRoute
@@ -565,6 +604,16 @@ function render() {
     profile: renderProfile,
     doctors: renderDoctors,
     labs: renderLabs
+    ,"public-care": renderPublicCare
+    ,"health-support": renderHealthSupport
+    ,"health-support/jan-aushadhi": renderJanAushadhi
+    ,"health-support/government-schemes": renderSchemes
+    ,"health-support/insurance": renderInsurance
+    ,"health-support/medicines": renderMedicines
+    ,"public-care-detail": () => renderEcosystemDetail("PUBLIC_FACILITY")
+    ,"jan-aushadhi-detail": () => renderEcosystemDetail("JAN_AUSHADHI")
+    ,"scheme-detail": () => renderEcosystemDetail("GOVERNMENT_SCHEME")
+    ,"insurance-detail": () => renderEcosystemDetail("INSURANCE")
   };
   app.innerHTML = renderers[state.route]();
   hydrateIcons(app);
@@ -644,6 +693,16 @@ function renderHome() {
         <img class="oxygen-tree oxygen-tree-patient" src="/assets/brand-motion/oxygen-tree.svg" alt="" aria-hidden="true" />
       </section>
 
+      <section class="section ecosystem-section" aria-labelledby="ecosystemTitle">
+        <div class="section-head"><div><p class="care-ecosystem-kicker">One connected SehatLine</p><h2 class="section-title" id="ecosystemTitle">Everything you need for better healthcare</h2></div></div>
+        <div class="ecosystem-grid">
+          ${ecosystemCard("stethoscope", "Private Care", "Doctors, Clinics, Queue & Booking", "doctors", "Explore Private Care")}
+          ${ecosystemCard("map", "Public Care", "Government Hospitals, PHC, CHC & Medical Colleges", "public-care", "Explore Public Care")}
+          ${ecosystemCard("heart", "Health Support", "Jan Aushadhi, Medicines, Insurance & Government Schemes", "health-support", "Explore Health Support")}
+        </div>
+        <button class="ecosystem-profile-link" data-route="profile">One Patient Profile <span>→</span> <small>ABHA Integration — Coming Soon</small></button>
+      </section>
+
       <section class="section" aria-labelledby="quickTitle">
         <div class="section-head">
           <h2 class="section-title" id="quickTitle">What do you need?</h2>
@@ -685,15 +744,15 @@ function renderHome() {
           <article class="queue-card">
             <div class="section-head">
               <h3 class="section-title">Live clinic queue</h3>
-              <span class="status-pill">Live</span>
+              <span class="status-pill ${upcoming?.queueStatus === "live" ? "" : "blue"}">${upcoming?.queueStatus === "live" ? "Live" : "Check status"}</span>
             </div>
             <div class="queue-content">
               <div class="queue-ring">
-                <div class="queue-number"><strong>${upcoming?.token || "A-18"}</strong><small>Your token</small></div>
+                <div class="queue-number"><strong>${upcoming?.token || "Pending"}</strong><small>Your token</small></div>
               </div>
               <div class="queue-details">
-                <strong>${upcoming?.ahead ?? 3} patients ahead</strong>
-                <p>Estimated wait: ${upcoming?.wait || 18} minutes</p>
+                <strong>${Number.isFinite(upcoming?.ahead) ? `${upcoming.ahead} patients ahead` : "Open your live tracker"}</strong>
+                <p>${Number.isFinite(upcoming?.wait) ? `Estimated wait: ${upcoming.wait} minutes` : "Live ETA appears when the clinic queue is available."}</p>
                 <button class="btn" data-action="queue" data-id="${upcoming?.id || "a1"}">Track queue ${svg("arrow")}</button>
               </div>
             </div>
@@ -1010,6 +1069,7 @@ function appointmentCard(appointment) {
         <h3>${escapeHtml(doctor.name)}</h3>
         <p>${escapeHtml(doctor.specialty)} · ${escapeHtml(appointment.time)}</p>
         <span class="status-pill ${appointment.status === "Completed" ? "blue" : ""}">${escapeHtml(appointment.status)}</span>
+        <span class="status-pill ${appointment.paymentStatus === "paid" ? "blue" : ""}">${appointment.paymentMode === "online" ? "Online" : "Cash at clinic"} · ${appointment.paymentStatus === "paid" ? `${formatPrice(appointment.amount)} paid` : `${formatPrice(appointment.amount)} due`}</span>
       </div>
       <div class="appointment-card-actions">
         ${appointment.upcoming
@@ -1359,6 +1419,12 @@ function settingRow(iconName, title, subtitle, action, tail = "chevron") {
     </button>`;
 }
 
+function renderMyHealthcare() {
+  const publicSaved = state.savedRecords.filter(entry => entry.itemType === "PUBLIC_FACILITY"), supportSaved = state.savedRecords.filter(entry => entry.itemType !== "PUBLIC_FACILITY");
+  const savedCard = entry => { const item = entry.item || {}, route = entry.itemType === "PUBLIC_FACILITY" ? `public-care/${entry.itemId}` : entry.itemType === "JAN_AUSHADHI" ? `health-support/jan-aushadhi/${entry.itemId}` : entry.itemType === "GOVERNMENT_SCHEME" ? `health-support/government-schemes/${entry.itemId}` : `health-support/insurance/${entry.itemId}`; return `<article class="profile-saved-card"><span class="government-badge">${entry.itemType.replaceAll("_"," ")}</span><strong>${info(item.name || item.planName)}</strong><small>${info(item.city || item.state || item.provider)}</small><button class="btn btn-secondary" data-route="${route}">View</button></article>`; };
+  return `<section class="my-healthcare card"><div class="section-head"><div><p class="care-ecosystem-kicker">One Patient Profile</p><h2 class="section-title">My Healthcare</h2></div></div><div class="healthcare-summary-grid"><button data-route="appointments"><span>${svg("calendar")}</span><strong>Appointments</strong><small>${state.appointments.length} records</small></button><button data-route="appointments"><span>${svg("activity")}</span><strong>Queue</strong><small>Current and previous tokens</small></button><div><span>${svg("map")}</span><strong>Saved Public Care</strong><small>${publicSaved.length} saved</small></div><div><span>${svg("heart")}</span><strong>Saved Health Support</strong><small>${supportSaved.length} saved</small></div></div>${state.savedRecords.length ? `<div class="profile-saved-grid">${state.savedRecords.map(savedCard).join("")}</div>` : `<div class="profile-saved-empty"><p>No saved public-care or health-support items yet.</p><button class="btn btn-secondary" data-route="public-care">Explore Public Care</button><button class="btn btn-secondary" data-route="health-support">Explore Health Support</button></div>`}</section>`;
+}
+
 function renderProfile() {
   return `
     <div class="page">
@@ -1389,6 +1455,8 @@ function renderProfile() {
             ${settingRow("heart", "Saved doctors & labs", `${state.favorites.size + state.savedLabs.size} saved providers`, "saved")}
             ${settingRow("calendar", "Appointments", "Upcoming and past consultations", "go-appointments")}
             ${settingRow("file", "Medical records", `${state.reports.length} documents`, "go-reports")}
+            ${settingRow("map", "Public Care", "Saved government facilities", "go-public-care")}
+            ${settingRow("heart", "Health Support", "Saved stores, schemes and insurance", "go-health-support")}
           </div>
           <div class="settings-group">
             <h2 class="settings-label">Preferences</h2>
@@ -1404,8 +1472,26 @@ function renderProfile() {
           </div>
         </section>
       </div>
+      ${renderMyHealthcare()}
+      <section class="abha-card card"><div><span class="government-badge">Coming Soon</span><h2>ABHA Integration</h2><p>Connect your ABHA account with SehatLine to create a more connected digital health experience.</p></div><button class="btn btn-secondary" disabled>Connect ABHA — Coming Soon</button></section>
     </div>`;
 }
+
+function openPublicDetail(id) {
+  const item = state.publicFacilities.find(entry => entry.id === id);
+  if (!item) return toast("Facility details are unavailable", "alert");
+  openModal(`<div class="detail-sheet"><span class="government-badge">Government healthcare</span><h2 id="modalTitle">${info(item.name)}</h2><p>${info(facilityType(item.facilityType))}</p>
+    <div class="detail-list"><div><strong>Address</strong><span>${info(item.address)}</span></div><div><strong>Contact</strong><span>${info(item.phone)}</span></div><div><strong>OPD timing</strong><span>${info(item.opdTimings)}</span></div><div><strong>Emergency</strong><span>${item.emergencyAvailable === true ? "Available" : item.emergencyAvailable === false ? "Not available" : "Information not available"}</span></div><div><strong>Departments</strong><span>${info((item.departments || []).join(", "))}</span></div><div><strong>Services</strong><span>${info((item.services || []).join(", "))}</span></div><div><strong>Notes</strong><span>${info(item.notes || item.description)}</span></div><div><strong>Last updated</strong><span>${info(item.lastUpdated ? new Date(item.lastUpdated).toLocaleDateString("en-IN") : "")}</span></div></div>
+    <div class="ecosystem-coming-note">Appointments, OPD queue, beds and doctor roster — Coming Soon</div></div>`, true);
+}
+
+function openSupportDetail(kind, id) {
+  const item = (kind === "scheme" ? state.governmentSchemes : state.insurancePlans).find(entry => entry.id === id);
+  if (!item) return;
+  openModal(`<div class="detail-sheet"><span class="government-badge">${kind === "scheme" ? "Government Scheme" : "Insurance information"}</span><h2 id="modalTitle">${info(item.name || item.planName)}</h2><p>${info(item.shortDescription || item.description)}</p><div class="detail-list"><div><strong>Eligibility</strong><span>${info(item.eligibility)}</span></div><div><strong>Benefits</strong><span>${info(asDisplayList(item.benefits))}</span></div>${kind === "scheme" ? `<div><strong>Required documents</strong><span>${info(asDisplayList(item.requiredDocuments))}</span><div><strong>How to apply</strong><span>${info(item.applicationProcess)}</span></div>` : ""}</div><p class="medical-disclaimer">Indicative information only. Final eligibility and coverage are determined by the concerned authority or insurer.</p>${item.officialUrl ? `<a class="btn btn-primary" href="${escapeHtml(item.officialUrl)}" target="_blank" rel="noopener">Official website</a>` : ""}</div>`, true);
+}
+
+function asDisplayList(value) { return Array.isArray(value) ? value.join(", ") : value || ""; }
 
 function openModal(content, wide = false) {
   closeQueueTimer();
@@ -1588,13 +1674,18 @@ async function openBooking(doctorId, step = 1) {
   if (step === 1) {
     try {
       const schedule = await apiRequest(`/api/doctors/${encodeURIComponent(doctorId)}/slots?date=${encodeURIComponent(state.bookingDraft.dateISO)}`, { timeoutMs: 5000 });
+      state.bookingDraft.allSlots = Array.isArray(schedule?.slots) ? schedule.slots : [];
+      state.bookingDraft.paymentConfigured = schedule?.paymentConfigured === true;
       liveSlots = Array.isArray(schedule?.slots) ? schedule.slots.filter(slot => slot.available !== false) : [];
     } catch {
+      state.bookingDraft.allSlots = [];
+      state.bookingDraft.paymentConfigured = false;
       liveSlots = [];
     }
     if (!liveSlots.some(slot => slot.time === state.bookingDraft.time)) state.bookingDraft.time = liveSlots[0]?.time || "";
   }
   state.bookingDraft.type ||= "Clinic visit";
+  state.bookingDraft.paymentMode ||= "cash";
   state.bookingDraft.patient ||= "Abhigyan Maurya";
   const steps = `<div class="stepper"><span class="active"></span><span class="${step >= 2 ? "active" : ""}"></span><span class="${step >= 3 ? "active" : ""}"></span></div>`;
   let content = "";
@@ -1609,7 +1700,7 @@ async function openBooking(doctorId, step = 1) {
         ${dateOptions.map((date) => `<button class="date-chip ${state.bookingDraft.dateISO === date.iso ? "active" : ""}" data-booking-choice="dateISO" data-value="${date.iso}"><span>${date.weekday}</span><strong>${date.day}</strong><span>${date.month}</span></button>`).join("")}
       </div></div>
       <div class="field"><label>AVAILABLE TIME</label><div class="choice-row">
-        ${liveSlots.length ? liveSlots.map(slot => `<button class="time-chip ${state.bookingDraft.time === slot.time ? "active" : ""}" data-booking-choice="time" data-value="${slot.time}">${formatSlotTime(slot.time)}</button>`).join("") : `<div class="slot-empty">No live slots published for this date. Choose another date or ask the clinic.</div>`}
+        ${Array.isArray(state.bookingDraft.allSlots) && state.bookingDraft.allSlots.length ? state.bookingDraft.allSlots.map(slot => `<button class="time-chip ${state.bookingDraft.time === slot.time ? "active" : ""} ${slot.available === false ? "booked" : ""}" ${slot.available === false ? "disabled aria-disabled=\"true\"" : `data-booking-choice="time" data-value="${slot.time}"`}>${formatSlotTime(slot.time)}${slot.available === false ? " · Booked" : ""}</button>`).join("") : `<div class="slot-empty">No live slots published for this date. Choose another date or ask the clinic.</div>`}
       </div></div>
       <button class="btn btn-primary btn-block" data-booking-next="2" ${liveSlots.length ? "" : "disabled"}>Continue ${svg("arrow")}</button>`;
   } else if (step === 2) {
@@ -1619,7 +1710,7 @@ async function openBooking(doctorId, step = 1) {
       <div class="field"><label>PATIENT</label><select id="bookingPatient"><option>Abhigyan Maurya</option><option>Sunita Maurya</option><option>Add family member</option></select></div>
       <div class="field"><label>REASON FOR VISIT</label><textarea id="bookingReason" placeholder="Briefly describe the concern (optional)">${escapeHtml(state.bookingDraft.reason || "")}</textarea></div>
       <div class="field"><label>PAYMENT</label><div class="choice-row">
-        <button class="type-chip active">${svg("wallet")} Pay at clinic</button><button class="type-chip">${svg("phone")} UPI</button>
+        <button class="type-chip ${state.bookingDraft.paymentMode === "cash" ? "active" : ""}" data-payment-choice="cash">${svg("wallet")} Cash at clinic</button><button class="type-chip ${state.bookingDraft.paymentMode === "online" ? "active" : ""}" data-payment-choice="online" ${state.bookingDraft.paymentConfigured ? "" : "disabled"}>${svg("phone")} Pay online${state.bookingDraft.paymentConfigured ? "" : " · Unavailable"}</button>
       </div></div>
       <div class="row" style="gap:9px"><button class="btn btn-secondary" data-booking-next="1">Back</button><button class="btn btn-primary" style="flex:1" data-booking-next="3">Review booking ${svg("arrow")}</button></div>`;
   } else {
@@ -1633,10 +1724,10 @@ async function openBooking(doctorId, step = 1) {
           <span class="info-pill">${svg("clock")} ${escapeHtml(formatSlotTime(state.bookingDraft.time))}</span>
           <span class="info-pill">${svg("map-pin")} ${escapeHtml(state.bookingDraft.type)}</span>
         </div>
-        <div class="booking-total"><span>Pay ${state.bookingDraft.type === "Clinic visit" ? "at clinic" : "online"}</span><strong>${formatPrice(doctor.fee)}</strong></div>
+        <div class="booking-total"><span>${state.bookingDraft.paymentMode === "online" ? "Pay securely online" : "Cash due at clinic"}</span><strong>${formatPrice(doctor.fee)}</strong></div>
       </div>
       <div class="safety-note" style="color:var(--text-soft);background:var(--surface-soft);border-color:var(--line)">${svg("info")} Free cancellation up to 2 hours before the appointment.</div>
-      <div class="row" style="gap:9px;margin-top:16px"><button class="btn btn-secondary" data-booking-next="2">Back</button><button class="btn btn-primary" style="flex:1" data-action="confirm-booking">Confirm appointment</button></div>`;
+      <div class="row" style="gap:9px;margin-top:16px"><button class="btn btn-secondary" data-booking-next="2">Back</button><button class="btn btn-primary" style="flex:1" data-action="confirm-booking">${state.bookingDraft.paymentMode === "online" ? `Pay ${formatPrice(doctor.fee)} & confirm` : "Confirm cash appointment"}</button></div>`;
   }
   openModal(content);
 }
@@ -1659,8 +1750,13 @@ async function confirmBooking() {
     reason: state.bookingDraft.reason || "",
     amount: doctor.fee,
     status: "Confirmed",
+    paymentMode: state.bookingDraft.paymentMode || "cash",
     upcoming: true
   };
+  if (newAppointment.paymentMode === "online") {
+    await startPatientAppointmentPayment(newAppointment, doctor);
+    return;
+  }
   let savedAppointment = newAppointment;
   try {
     const response = await apiRequest(rescheduleId ? `/api/appointments/${encodeURIComponent(rescheduleId)}` : "/api/appointments", {
@@ -1688,6 +1784,256 @@ async function confirmBooking() {
       <button class="btn btn-primary btn-block" data-action="view-appointments">View my appointments</button>
     </div>`);
   state.bookingDraft = {};
+}
+
+function ecosystemCard(iconName, title, copy, route, action) {
+  return `<article class="ecosystem-card card"><span class="ecosystem-icon">${svg(iconName)}</span><h3>${title}</h3><p>${copy}</p><button class="btn btn-secondary" data-route="${route}">${action}</button></article>`;
+}
+
+function info(value) { return value == null || value === "" ? "Information not available" : escapeHtml(value); }
+function facilityType(value = "") { return ({ GOVT_HOSPITAL: "Government Hospital", PHC: "PHC", CHC: "CHC", SADAR_HOSPITAL: "Sadar Hospital", MEDICAL_COLLEGE: "Medical College" })[value] || value || "Government facility"; }
+const savedKey = (type,id) => `${type}:${id}`;
+function saveButton(type,id) { const saved = state.savedItems.has(savedKey(type,id)); return `<button class="btn btn-secondary" data-action="toggle-healthcare-save" data-kind="${type}" data-id="${escapeHtml(id)}">${saved ? "Saved ✓" : "Save"}</button>`; }
+function breadcrumb(parts) { return `<nav class="care-breadcrumb" aria-label="Breadcrumb"><button data-route="home">Home</button>${parts.map((part,index) => `<span>›</span>${part.route ? `<button data-route="${part.route}">${escapeHtml(part.label)}</button>` : `<strong>${escapeHtml(part.label)}</strong>`}`).join("")}</nav>`; }
+function filterOptions(items,key,label,value = state.ecosystemFilters[key]) { return `<option value="">All ${label}</option>${[...new Set(items.map(item => item[key]).filter(Boolean))].sort().map(item => `<option value="${escapeHtml(item)}" ${item === value ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}`; }
+function getLocationDisplayName(location = {}) {
+  const parts = [location.sublocality, location.locality, location.village, location.town, location.city, location.district, location.state].filter(Boolean);
+  return [...new Set(parts.map(part => String(part).trim()).filter(Boolean))].slice(0, 3).join(", ") || location.name || location.formattedAddress || "Selected location";
+}
+function healthcareLocationSearch() {
+  const location = state.selectedHealthcareLocation, open = state.locationQuery.length >= 2 || state.locationSearchLoading || state.locationSearchError;
+  return `<section class="healthcare-location card" aria-label="Search location"><div class="healthcare-location-heading"><div><span>LOCATION</span><strong>${location ? `📍 ${escapeHtml(getLocationDisplayName(location))}` : "Find healthcare anywhere in India"}</strong></div>${location ? `<button type="button" class="location-change" data-action="change-healthcare-location">Change</button>` : ""}</div><label class="location-state-select"><span>STATE / UNION TERRITORY</span><select data-location-state><option value="">All India</option>${indiaStates.map(name => `<option value="${escapeHtml(name)}" ${state.locationStateContext === name ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select><small>Select a state, then type any district, city, village or locality.</small></label>
+    <div class="location-combobox"><span aria-hidden="true">⌕</span><input type="search" data-location-search autocomplete="off" value="${escapeHtml(state.locationQuery)}" placeholder="Search area, village, city or PIN..." role="combobox" aria-expanded="${open && state.locationSuggestions.length ? "true" : "false"}" aria-controls="locationSuggestions" aria-autocomplete="list"><button type="button" data-action="clear-location-query" aria-label="Clear location search">×</button>
+    ${open ? `<div class="location-suggestions" id="locationSuggestions" role="listbox">${state.locationSearchLoading ? `<div class="location-status">Searching locations…</div>` : state.locationSearchError ? `<div class="location-status location-error">${escapeHtml(state.locationSearchError)}<small>You can still browse healthcare facilities.</small></div>` : state.locationSuggestions.map((item,index) => `<button type="button" role="option" aria-selected="${index === state.locationActiveIndex}" class="location-suggestion ${index === state.locationActiveIndex ? "active" : ""}" data-location-place="${escapeHtml(item.placeId)}"><span>📍</span><span><strong>${escapeHtml(item.primaryText)}</strong><small>${escapeHtml(item.secondaryText)}</small></span></button>`).join("") || `<div class="location-status">No matching Indian locations found.</div>`}</div>` : ""}</div>
+    <div class="location-actions"><button type="button" class="use-current-location" data-action="use-current-location" ${state.locationDetecting ? "disabled" : ""}>${state.locationDetecting ? "Detecting your location…" : "📍 Use Current Location"}</button><label class="location-radius"><span>SEARCH RADIUS</span><select data-healthcare-radius>${[5000,10000,25000,50000].map(value => `<option value="${value}" ${state.healthcareRadius === value ? "selected" : ""}>${value / 1000} km</option>`).join("")}</select></label></div></section>`;
+}
+function updateLocationSuggestionPanel() {
+  const box = document.querySelector(".location-combobox"); if (!box) return;
+  let panel = box.querySelector(".location-suggestions");
+  const shouldShow = state.locationQuery.trim().length >= 2 || state.locationSearchLoading || state.locationSearchError;
+  if (!shouldShow) { panel?.remove(); return; }
+  if (!panel) { panel = document.createElement("div"); panel.className = "location-suggestions"; panel.id = "locationSuggestions"; panel.setAttribute("role","listbox"); box.append(panel); }
+  panel.innerHTML = state.locationSearchLoading ? `<div class="location-status">Searching locations…</div>` : state.locationSearchError ? `<div class="location-status location-error">${escapeHtml(state.locationSearchError)}<small>You can still browse healthcare facilities.</small></div>` : state.locationSuggestions.map((item,index) => `<button type="button" role="option" aria-selected="${index === state.locationActiveIndex}" class="location-suggestion ${index === state.locationActiveIndex ? "active" : ""}" data-location-place="${escapeHtml(item.placeId)}"><span>📍</span><span><strong>${escapeHtml(item.primaryText)}</strong><small>${escapeHtml(item.secondaryText)}</small></span></button>`).join("") || `<div class="location-status">No matching locations found.</div>`;
+  const input = box.querySelector("[data-location-search]"); input?.setAttribute("aria-expanded", String(Boolean(state.locationSuggestions.length)));
+}
+function locationFallbackNotice() {
+  const location = state.selectedHealthcareLocation;
+  if (state.locationMatch === "district-fallback") return `<div class="location-fallback-note">No facilities found exactly in ${escapeHtml(location?.locality || location?.city || location?.village || "the selected area")}. Showing healthcare facilities in ${escapeHtml(location?.district || "the district")} district.</div>`;
+  if (state.locationMatch === "state-fallback") return `<div class="location-fallback-note">No closer facilities were found. Showing healthcare facilities in ${escapeHtml(location?.state || "the selected state")}.</div>`;
+  return "";
+}
+function listPager() { const {page = 1,pages = 1} = state.route === "public-care" ? state.publicCareFilters : state.ecosystemFilters; return pages > 1 ? `<div class="care-pagination"><button class="btn btn-secondary" data-care-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>Previous</button><span>Page ${page} of ${pages}</span><button class="btn btn-secondary" data-care-page="${page + 1}" ${page >= pages ? "disabled" : ""}>Next</button></div>` : ""; }
+function listingBody(cards,emptyTitle,emptyCopy) { if (state.ecosystemLoading) return `<div class="care-skeleton-grid">${Array.from({length:3},() => `<div class="care-skeleton"></div>`).join("")}</div>`; return `<div class="network-grid">${cards || emptyState("search",emptyTitle,emptyCopy,"Clear filters","clear-care-filters")}</div>${listPager()}`; }
+
+function renderPublicCare() {
+  const filter = state.publicCareFilters;
+  const cards = state.publicFacilities.map(item => `<article class="network-card card">
+    <div class="network-card-head"><span class="government-badge">${svg("shield")} Public Care</span><span>${info(facilityType(item.facilityType))}</span></div>
+    ${item.verified ? `<span class="verified care-verified">${svg("shield")} Verified</span>` : ""}
+    <h3>${info(item.name)}</h3><p>${svg("map-pin")} ${info([item.city || item.block, item.district, item.state].filter(Boolean).join(", "))}</p>
+    ${item.distanceKm != null ? `<p class="facility-distance">${escapeHtml(item.distanceKm)} km away</p>` : ""}${item.address ? `<p>${escapeHtml(item.address)}</p>` : ""}${item.phone ? `<p>${svg("phone")} ${escapeHtml(item.phone)}</p>` : ""}
+    <div class="service-tags">${(item.services || []).slice(0, 4).map(service => `<span>${escapeHtml(service)}</span>`).join("") || "<span>Service information not available</span>"}</div>
+    <dl><div><dt>OPD</dt><dd>${info(item.opdTimings)}</dd></div><div><dt>Emergency</dt><dd>${item.emergencyAvailable === true ? "Emergency Available" : "Emergency information unavailable"}</dd></div></dl>
+    <div class="network-actions"><button class="btn btn-primary" data-route="public-care/${item.id}">View Details</button>${saveButton("PUBLIC_FACILITY",item.id)}${item.latitude != null && item.longitude != null ? `<a class="btn btn-secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(item.latitude + "," + item.longitude)}">Directions</a>` : ""}</div>
+  </article>`).join("");
+  return `<div class="page">${breadcrumb([{label:"Public Care"}])}<div class="page-head"><div><p class="care-ecosystem-kicker">Public Care</p><h1 class="page-title">Public Care</h1><p class="page-subtitle">Find government healthcare facilities near you.</p></div></div>
+    ${state.ecosystemErrors.publicFacilities ? ecosystemError(state.ecosystemErrors.publicFacilities) : ""}
+    ${healthcareLocationSearch()}${locationFallbackNotice()}
+    <div class="network-filters care-filter-grid compact-care-filters card"><label><span>SEARCH FACILITY</span><input data-care-filter="search" value="${escapeHtml(filter.search)}" type="search" placeholder="Search hospital or PHC" aria-label="Search facilities"></label><label><span>FACILITY TYPE</span><select data-care-filter="type"><option value="">All facility types</option>${[["GOVT_HOSPITAL","Government Hospital"],["PHC","PHC"],["CHC","CHC"],["SADAR_HOSPITAL","Sadar Hospital"],["MEDICAL_COLLEGE","Medical College"]].map(([key,label]) => `<option value="${key}" ${filter.type === key ? "selected" : ""}>${label}</option>`).join("")}</select></label><button class="btn btn-secondary" data-action="clear-care-filters">Clear Facility Filters</button></div>
+    ${listingBody(cards,"No public healthcare facilities found","Try changing your location or facility filters.")}</div>`;
+}
+
+function renderHealthSupport() {
+  const supportError = state.ecosystemErrors.healthSupportLocations || state.ecosystemErrors.governmentSchemes || state.ecosystemErrors.insurancePlans;
+  return `<div class="page">${breadcrumb([{label:"Health Support"}])}<div class="page-head"><div><p class="care-ecosystem-kicker">Health Support</p><h1 class="page-title">Healthcare support, in one place</h1><p class="page-subtitle">Affordable medicine centres, schemes and insurance information.</p></div></div>
+    ${supportError ? ecosystemError(supportError) : ""}
+    <div class="support-feature-grid">${ecosystemCard("map-pin","Jan Aushadhi","Find affordable medicine centres near you.","health-support/jan-aushadhi","Find centers")}${ecosystemCard("heart","Medicines","Medicine information and support.","health-support/medicines","Coming Soon")}${ecosystemCard("shield","Insurance","Explore healthcare insurance options.","health-support/insurance","Explore Insurance")}${ecosystemCard("file","Government Schemes","Discover government health schemes and benefits.","health-support/government-schemes","Explore Schemes")}</div></div>`;
+}
+
+function supportFilters(items,{typeOptions = "",category = false,pincode = false} = {}) {
+  const f = state.ecosystemFilters;
+  const geographical = !category;
+  return `${geographical ? healthcareLocationSearch() + locationFallbackNotice() : ""}<div class="network-filters care-filter-grid compact-care-filters card"><label><span>SEARCH ${pincode ? "CENTER" : "INFORMATION"}</span><input data-care-filter="search" value="${escapeHtml(f.search)}" placeholder="Search by name"></label><label><span>TYPE</span><select data-care-filter="type"><option value="">All types</option>${typeOptions}</select></label>${category ? `<label><span>CATEGORY</span><select data-care-filter="category">${filterOptions(items,"category","categories")}</select></label>` : ""}<button class="btn btn-secondary" data-action="clear-care-filters">Clear Filters</button></div>`;
+}
+
+function renderJanAushadhi() {
+  const cards = state.healthSupportLocations.map(item => `<article class="network-card card">${item.verified ? `<span class="verified care-verified">${svg("shield")} Verified</span>` : ""}<span class="government-badge">Jan Aushadhi</span><h3>${info(item.name)}</h3><p>${svg("map-pin")} ${info(item.address || [item.city,item.district,item.state].filter(Boolean).join(", "))}</p>${item.distanceKm != null ? `<p class="facility-distance">${escapeHtml(item.distanceKm)} km away</p>` : ""}${item.pincode ? `<p>PIN ${escapeHtml(item.pincode)}</p>` : ""}${item.phone ? `<p>${svg("phone")} ${escapeHtml(item.phone)}</p>` : ""}${item.openingHours ? `<p>${svg("clock")} ${escapeHtml(item.openingHours)}</p>` : ""}<div class="service-tags">${(item.services || []).map(value => `<span>${escapeHtml(value)}</span>`).join("")}</div><div class="network-actions"><button class="btn btn-primary" data-route="health-support/jan-aushadhi/${item.id}">View Details</button>${saveButton("JAN_AUSHADHI",item.id)}${item.latitude != null && item.longitude != null ? `<a class="btn btn-secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(item.latitude + "," + item.longitude)}">Directions</a>` : ""}</div></article>`).join("");
+  return `<div class="page">${breadcrumb([{label:"Health Support",route:"health-support"},{label:"Jan Aushadhi"}])}<div class="page-head"><div><h1 class="page-title">Jan Aushadhi</h1><p class="page-subtitle">Find affordable medicine centres near you.</p></div></div>${state.ecosystemErrors.healthSupportLocations ? ecosystemError(state.ecosystemErrors.healthSupportLocations) : ""}${supportFilters(state.healthSupportLocations,{pincode:true})}${listingBody(cards,"No Jan Aushadhi centers found","Try changing your location or filters.")}</div>`;
+}
+
+function renderSchemes() {
+  const f = state.ecosystemFilters, levels = [["CENTRAL","Central"],["STATE","State"],["DISTRICT","District"]].map(([key,label]) => `<option value="${key}" ${f.type === key ? "selected" : ""}>${label}</option>`).join("");
+  const cards = state.governmentSchemes.map(item => `<article class="support-item card">${item.verified ? `<span class="verified care-verified">${svg("shield")} Verified</span>` : ""}<span class="government-badge">${info(item.governmentLevel)} Government Scheme</span><h3>${info(item.name)}</h3><p>${info(item.shortDescription)}</p><div class="service-tags">${item.category ? `<span>${escapeHtml(item.category)}</span>` : ""}${item.state ? `<span>${escapeHtml(item.state)}</span>` : ""}</div><div class="network-actions"><button class="btn btn-primary" data-route="health-support/government-schemes/${item.id}">View Details</button>${saveButton("GOVERNMENT_SCHEME",item.id)}</div></article>`).join("");
+  return `<div class="page">${breadcrumb([{label:"Health Support",route:"health-support"},{label:"Government Schemes"}])}<div class="page-head"><div><h1 class="page-title">Government Schemes</h1><p class="page-subtitle">Discover government health schemes and benefits.</p></div></div>${state.ecosystemErrors.governmentSchemes ? ecosystemError(state.ecosystemErrors.governmentSchemes) : ""}${supportFilters(state.governmentSchemes,{typeOptions:levels,category:true})}${listingBody(cards,"No government schemes available","Try changing the selected filters.")}</div>`;
+}
+
+function renderInsurance() {
+  const f = state.ecosystemFilters, types = [["GOVERNMENT","Government"],["PRIVATE","Private"]].map(([key,label]) => `<option value="${key}" ${f.type === key ? "selected" : ""}>${label}</option>`).join("");
+  const cards = state.insurancePlans.map(item => `<article class="support-item card">${item.verified ? `<span class="verified care-verified">${svg("shield")} Verified</span>` : ""}<span class="government-badge">${info(item.insuranceType)}</span><h3>${info(item.planName)}</h3><p><strong>${info(item.provider)}</strong></p><p>${info(item.shortDescription || item.description)}</p>${item.state ? `<div class="service-tags"><span>${escapeHtml(item.state)}</span></div>` : ""}<div class="network-actions"><button class="btn btn-primary" data-route="health-support/insurance/${item.id}">View Details</button>${saveButton("INSURANCE",item.id)}</div></article>`).join("");
+  return `<div class="page">${breadcrumb([{label:"Health Support",route:"health-support"},{label:"Insurance"}])}<div class="page-head"><div><h1 class="page-title">Insurance</h1><p class="page-subtitle">Explore healthcare insurance information without coverage guarantees.</p></div></div>${state.ecosystemErrors.insurancePlans ? ecosystemError(state.ecosystemErrors.insurancePlans) : ""}${supportFilters(state.insurancePlans,{typeOptions:types})}${listingBody(cards,"No insurance plans available","Try changing the selected filters.")}</div>`;
+}
+
+function renderMedicines() { return `<div class="page">${breadcrumb([{label:"Health Support",route:"health-support"},{label:"Medicines"}])}<div class="coming-section medicines-coming"><span class="government-badge">Coming Soon</span><h1 class="page-title">Medicines</h1><p>Medicine services are being expanded on SehatLine.</p><p class="medical-disclaimer">Medicine information is for informational purposes. Consult a qualified healthcare professional before taking prescription medicines.</p><button class="btn btn-secondary" data-route="health-support">Back to Health Support</button></div></div>`; }
+
+function renderEcosystemDetail(type) {
+  const config = { PUBLIC_FACILITY:[state.publicFacilities,"Public Care","public-care"], JAN_AUSHADHI:[state.healthSupportLocations,"Jan Aushadhi","health-support/jan-aushadhi"], GOVERNMENT_SCHEME:[state.governmentSchemes,"Government Schemes","health-support/government-schemes"], INSURANCE:[state.insurancePlans,"Insurance","health-support/insurance"] }[type];
+  const item = config[0].find(entry => entry.id === state.detailId);
+  if (state.ecosystemLoading) return `<div class="page"><div class="care-skeleton detail-skeleton"></div></div>`;
+  if (!item) return `<div class="page">${breadcrumb([{label:config[1],route:config[2]},{label:"Not found"}])}${emptyState("alert","Healthcare information unavailable","This item may have been disabled or removed.","Go back",`route:${config[2]}`)}</div>`;
+  const name = item.name || item.planName, directions = item.latitude != null && item.longitude != null ? `<a class="btn btn-secondary" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(item.latitude + "," + item.longitude)}">Directions</a>` : "";
+  const section = (title,value) => value && (Array.isArray(value) ? value.length : true) ? `<section class="care-detail-section"><h2>${title}</h2>${Array.isArray(value) ? `<div class="service-tags">${value.map(entry => `<span>${escapeHtml(entry)}</span>`).join("")}</div>` : `<p>${escapeHtml(value)}</p>`}</section>` : "";
+  return `<div class="page">${breadcrumb([{label:config[1],route:config[2]},{label:name}])}<article class="care-detail-hero card"><div>${item.verified ? `<span class="verified care-verified">${svg("shield")} Verified</span>` : ""}<p class="care-ecosystem-kicker">${type === "PUBLIC_FACILITY" ? facilityType(item.facilityType) : type === "GOVERNMENT_SCHEME" ? item.governmentLevel : type === "INSURANCE" ? item.insuranceType : "Jan Aushadhi"}</p><h1>${info(name)}</h1><p>${info(item.shortDescription || item.description)}</p></div><div class="network-actions">${saveButton(type,item.id)}${directions}</div></article><div class="care-detail-grid">
+    ${type === "PUBLIC_FACILITY" ? `${section("Location",[item.address,item.city,item.district,item.state,item.pincode && `PIN ${item.pincode}`,item.block].filter(Boolean))}${section("Contact",[item.phone,item.email].filter(Boolean))}${section("OPD",item.opdTimings)}${section("Emergency",item.emergencyAvailable ? "Emergency Available" : "Emergency information unavailable")}${section("Departments",item.departments)}${section("Services",item.services)}${section("About Facility",item.description)}` : ""}
+    ${type === "JAN_AUSHADHI" ? `${section("Location",[item.address,item.city,item.district,item.state,item.pincode && `PIN ${item.pincode}`].filter(Boolean))}${section("Contact",[item.phone,item.email].filter(Boolean))}${section("Opening hours",item.openingHours)}${section("Services",item.services)}${section("About",item.description)}<div class="ecosystem-coming-note">Live medicine stock availability coming soon.</div>` : ""}
+    ${type === "GOVERNMENT_SCHEME" ? `${section("About",item.description)}${section("Eligibility",item.eligibility)}${section("Benefits",item.benefits)}${section("Required Documents",item.requiredDocuments)}${section("How to Apply",item.applicationProcess)}<p class="medical-disclaimer">Eligibility information is indicative. Final eligibility is determined by the concerned government authority.</p>${item.officialUrl ? `<a class="btn btn-primary" href="${escapeHtml(item.officialUrl)}" target="_blank" rel="noopener">Visit Official Website</a>` : ""}` : ""}
+    ${type === "INSURANCE" ? `${section("Provider",item.provider)}${section("Applicable state",item.state)}${section("About",item.description)}${section("Eligibility",item.eligibility)}${section("Benefits",item.benefits)}<p class="medical-disclaimer">Plan information does not guarantee approval or coverage.</p>${item.officialUrl ? `<a class="btn btn-primary" href="${escapeHtml(item.officialUrl)}" target="_blank" rel="noopener">Official Website</a>` : ""}` : ""}
+  </div></div>`;
+}
+
+function ecosystemError(message) { return `<div class="ecosystem-error" role="alert"><div><strong>Healthcare information could not be loaded</strong><p>${escapeHtml(message)}</p></div><button class="btn btn-secondary" data-action="retry-ecosystem">Retry</button></div>`; }
+
+function ecosystemRouteConfig(route = state.route) {
+  if (["public-care","public-care-detail"].includes(route)) return { key:"publicFacilities", path:"/api/public-care/facilities", detail:route.endsWith("detail") };
+  if (["health-support/jan-aushadhi","jan-aushadhi-detail"].includes(route)) return { key:"healthSupportLocations", path:"/api/health-support/locations", fixed:{type:"JAN_AUSHADHI"}, detail:route.endsWith("detail") };
+  if (["health-support/government-schemes","scheme-detail"].includes(route)) return { key:"governmentSchemes", path:"/api/health-support/schemes", detail:route.endsWith("detail") };
+  if (["health-support/insurance","insurance-detail"].includes(route)) return { key:"insurancePlans", path:"/api/health-support/insurance", detail:route.endsWith("detail") };
+  return null;
+}
+
+async function loadPatientEcosystemRoute() {
+  const config = ecosystemRouteConfig(); if (!config) return;
+  state.ecosystemLoading = true; delete state.ecosystemErrors[config.key]; render();
+  try {
+    if (config.detail) {
+      const item = await apiRequest(`${config.path}/${encodeURIComponent(state.detailId)}`, { timeoutMs:5000 });
+      const index = state[config.key].findIndex(entry => entry.id === item.id); if (index < 0) state[config.key].push(item); else state[config.key][index] = item;
+    } else {
+      const filters = state.route === "public-care" ? state.publicCareFilters : state.ecosystemFilters;
+      const params = new URLSearchParams({ page:String(filters.page || 1), limit:"12", ...(config.fixed || {}) });
+      for (const [key,value] of Object.entries(filters)) if (value && !["page","pages"].includes(key)) params.set(key === "type" && state.route === "public-care" ? "facilityType" : key === "type" && state.route.includes("government-schemes") ? "governmentLevel" : key === "type" && state.route.includes("insurance") ? "insuranceType" : key,value);
+      if (["public-care","health-support/jan-aushadhi"].includes(state.route) && state.selectedHealthcareLocation) {
+        const location = state.selectedHealthcareLocation;
+        for (const [key,value] of Object.entries({ state:location.state, district:location.district, city:location.city || location.town || location.village || location.locality, block:location.sublocality, pincode:location.postalCode, lat:location.latitude, lng:location.longitude, radius:state.healthcareRadius })) if (value != null && value !== "") params.set(key,String(value));
+      }
+      const payload = await apiRequest(`${config.path}?${params}`, { timeoutMs:5000 });
+      state[config.key] = payload.items || [];
+      state.locationMatch = payload.locationMatch || null;
+      if (state.route === "public-care") { state.publicCareFilters.page = payload.pagination?.page || 1; state.publicCareFilters.pages = payload.pagination?.pages || 1; }
+      else { state.ecosystemFilters.page = payload.pagination?.page || 1; state.ecosystemFilters.pages = payload.pagination?.pages || 1; }
+    }
+  } catch (error) { state.ecosystemErrors[config.key] = error.message || "Unable to load healthcare information."; }
+  finally { state.ecosystemLoading = false; render(); }
+}
+
+async function searchHealthcareLocations(query) {
+  if (query === state.locationLastQuery && (state.locationSuggestions.length || state.locationSearchError)) return;
+  state.locationLastQuery = query;
+  const requestId = ++state.locationRequestId;
+  state.locationSearchLoading = true; state.locationSearchError = ""; updateLocationSuggestionPanel();
+  try {
+    const providerQuery = state.locationStateContext ? `${query}, ${state.locationStateContext}` : query;
+    const payload = await apiRequest(`/api/location/autocomplete?input=${encodeURIComponent(providerQuery)}&sessionToken=${encodeURIComponent(state.locationSessionToken)}`, { timeoutMs:6000 });
+    if (requestId !== state.locationRequestId || query !== state.locationQuery.trim()) return;
+    state.locationSuggestions = payload.suggestions || [];
+  } catch (error) {
+    if (requestId !== state.locationRequestId) return;
+    state.locationSuggestions = [];
+    state.locationSearchError = error.code === "GOOGLE_MAPS_NOT_CONFIGURED" ? "Location search is temporarily unavailable." : "Unable to search locations right now. Please try again.";
+    console.error("[SehatLine Location] Autocomplete failed:", error.code || error.status || "NETWORK_ERROR");
+  } finally { if (requestId === state.locationRequestId) { state.locationSearchLoading = false; updateLocationSuggestionPanel(); } }
+}
+async function selectHealthcareLocation(placeId) {
+  state.locationSearchLoading = true; render();
+  try {
+    const location = await apiRequest(`/api/location/place?placeId=${encodeURIComponent(placeId)}`, { timeoutMs:7000 });
+    state.selectedHealthcareLocation = location; localStorage.setItem("sehatline-healthcare-location", JSON.stringify(location));
+    state.locationQuery = ""; state.locationSuggestions = []; state.locationSearchError = ""; state.locationLastQuery = ""; state.locationSessionToken = globalThis.crypto?.randomUUID?.() || String(Date.now());
+    await loadPatientEcosystemRoute(); toast(`Location set to ${getLocationDisplayName(location)}`, "map-pin");
+  } catch (error) { state.locationSearchLoading = false; state.locationSearchError = error.message || "Location details are temporarily unavailable."; render(); }
+}
+function useCurrentHealthcareLocation() {
+  if (!navigator.geolocation) { state.locationSearchError = "Unable to detect your current location. Please search manually."; render(); return; }
+  state.locationDetecting = true; state.locationSearchError = ""; render();
+  navigator.geolocation.getCurrentPosition(async position => {
+    try {
+      const location = await apiRequest("/api/location/reverse", { method:"POST", body:JSON.stringify({ latitude:position.coords.latitude, longitude:position.coords.longitude }), timeoutMs:8000 });
+      state.selectedHealthcareLocation = location; localStorage.setItem("sehatline-healthcare-location", JSON.stringify(location)); state.locationQuery = ""; state.locationSuggestions = [];
+      await loadPatientEcosystemRoute(); toast(`Location set to ${getLocationDisplayName(location)}`, "map-pin");
+    } catch (error) { state.locationSearchError = error.message || "Unable to detect your current location. Please search manually."; }
+    finally { state.locationDetecting = false; render(); }
+  }, error => {
+    state.locationDetecting = false;
+    state.locationSearchError = error.code === 1 ? "Location permission was denied. Search your location manually instead." : error.code === 3 ? "Location detection timed out. Please try again." : "Unable to detect your current location. Please search manually.";
+    render();
+  }, { enableHighAccuracy:true, timeout:10000, maximumAge:60000 });
+}
+
+async function loadSavedItems() {
+  if (!state.authToken) { state.savedItems.clear(); state.savedRecords = []; return; }
+  try { const payload = await apiRequest("/api/patient/saved-items", { timeoutMs:5000 }); state.savedRecords = payload.items || []; state.savedItems = new Set(state.savedRecords.map(entry => savedKey(entry.itemType,entry.itemId))); }
+  catch (error) { if (error.status === 401) { state.savedItems.clear(); state.savedRecords = []; } }
+}
+
+async function toggleHealthcareSave(type,id) {
+  if (!state.authToken) { openAuth("login"); return; }
+  const key = savedKey(type,id), saved = state.savedItems.has(key);
+  try {
+    await apiRequest(saved ? `/api/patient/saved-items/${type}:${encodeURIComponent(id)}` : "/api/patient/saved-items", { method:saved ? "DELETE" : "POST", body:saved ? undefined : JSON.stringify({itemType:type,itemId:id}), timeoutMs:5000 });
+    if (saved) state.savedItems.delete(key); else state.savedItems.add(key);
+    await loadSavedItems(); render(); toast(saved ? "Removed from saved items" : "Saved to your profile", saved ? "heart" : "check-circle");
+  } catch (error) { toast(error.message || "Saved items could not be updated", "alert"); }
+}
+
+async function loadPatientRazorpayCheckout() {
+  if (window.Razorpay) return;
+  await new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
+    if (existing) { existing.addEventListener("load", resolve, { once: true }); existing.addEventListener("error", reject, { once: true }); return; }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Secure payment checkout could not be loaded"));
+    document.head.append(script);
+  });
+}
+
+async function startPatientAppointmentPayment(booking, doctor) {
+  const button = document.querySelector('[data-action="confirm-booking"]');
+  const oldContent = button?.innerHTML || "";
+  if (button) { button.disabled = true; button.textContent = "Opening secure payment…"; }
+  try {
+    const [order] = await Promise.all([
+      apiRequest("/api/patient/payments/order", { method: "POST", body: JSON.stringify({ doctorId: booking.doctorId, date: booking.date, time: booking.time, booking }) }),
+      loadPatientRazorpayCheckout()
+    ]);
+    if (!order?.orderId || !window.Razorpay) throw new Error("Online payment is unavailable");
+    const checkout = new window.Razorpay({
+      key: order.keyId,
+      amount: order.amount,
+      currency: order.currency,
+      name: "SehatLine Healthcare",
+      description: `${doctor.name} · appointment fee`,
+      order_id: order.orderId,
+      theme: { color: "#00a977" },
+      modal: { confirm_close: true, ondismiss: () => { if (button) { button.disabled = false; button.innerHTML = oldContent; } } },
+      handler: async paymentResponse => {
+        try {
+          const savedAppointment = await apiRequest("/api/patient/payments/verify", { method: "POST", body: JSON.stringify({ ...paymentResponse }) });
+          state.appointments.unshift(savedAppointment);
+          state.bookingDraft = {};
+          openModal(`<div class="success-state"><div class="success-check">${svg("check")}</div><h2 id="modalTitle">Payment and appointment confirmed!</h2><p>Your visit with ${escapeHtml(doctor.name)} is booked. The doctor and receptionist can now see this online-paid appointment.</p><div class="booking-summary"><span class="fine">LIVE TOKEN</span><h3>${escapeHtml(savedAppointment.token)}</h3><p class="fine">${formatPrice(savedAppointment.amount)} paid online · verified</p></div><button class="btn btn-primary btn-block" data-action="view-appointments">View my appointments</button></div>`);
+        } catch (error) {
+          toast(error.message || "Payment verification failed. Contact support with your payment ID.", "alert");
+          if (button) { button.disabled = false; button.innerHTML = oldContent; }
+        }
+      }
+    });
+    checkout.open();
+  } catch (error) {
+    toast(error.message || "Online payment is unavailable. Choose cash at clinic.", "alert");
+    if (button) { button.disabled = false; button.innerHTML = oldContent; }
+  }
 }
 
 function openLabBooking(id) {
@@ -1754,27 +2100,39 @@ function openCompare(type) {
 }
 
 function openQueue(id) {
-  const appointment = state.appointments.find((item) => item.id === id) || state.appointments[0];
-  const doctor = doctorById(appointment.doctorId) || state.doctors[0];
-  const initialWait = Math.max(0, Number(appointment.wait) || 18);
-  const initialAhead = Math.max(0, Number(appointment.ahead) || 0);
+  if (!state.authToken) {
+    openAuth("login");
+    return;
+  }
+  const appointment = state.appointments.find((item) => item.id === id);
+  if (!appointment?.doctorId || !appointment?.token) {
+    toast("A confirmed doctor appointment with a live token is required.", "alert");
+    return;
+  }
+  const doctor = doctorById(appointment.doctorId);
+  if (!doctor) {
+    toast("This doctor profile is not available right now.", "alert");
+    return;
+  }
+  const hasInitialWait = Number.isFinite(appointment.wait);
+  const hasInitialAhead = Number.isFinite(appointment.ahead);
   openModal(`
     <div class="queue-live">
-      <span class="status-pill">● LIVE · OPD running</span>
+      <span class="status-pill blue" id="queueStatusPill">Connecting to clinic queue…</span>
       <h2 class="modal-title" id="modalTitle" style="margin-top:12px">${escapeHtml(doctor.name)}</h2>
       <p class="modal-subtitle">${escapeHtml(doctor.clinic)}</p>
       <div class="queue-ring" style="--progress:72%">
         <div class="queue-number"><strong>${escapeHtml(appointment.token || "—")}</strong><small>Your token</small></div>
       </div>
       <div class="queue-meta">
-        <div><strong id="patientsAhead">${initialAhead}</strong><small>Patients ahead</small></div>
-        <div><strong id="queueWait">${initialWait} min</strong><small>Estimated wait</small></div>
+        <div><strong id="patientsAhead">${hasInitialAhead ? appointment.ahead : "—"}</strong><small>Patients ahead</small></div>
+        <div><strong id="queueWait">${hasInitialWait ? `${appointment.wait} min` : "Checking"}</strong><small>Estimated wait</small></div>
         <div><strong id="queueCurrentToken">${escapeHtml(appointment.currentToken || "—")}</strong><small>Now serving</small></div>
       </div>
       <div class="timeline">
-        <div class="timeline-row"><span class="timeline-dot"></span><div><strong>You checked in</strong><small>5:07 PM</small></div></div>
-        <div class="timeline-row"><span class="timeline-dot"></span><div><strong id="queueAiMessage">Connecting to live AI estimate…</strong><small id="queueUpdatedAt">Updating now</small></div></div>
-        <div class="timeline-row pending"><span class="timeline-dot"></span><div><strong>Get ready when 1 patient is ahead</strong><small>We’ll send a notification</small></div></div>
+        <div class="timeline-row"><span class="timeline-dot"></span><div><strong>Appointment confirmed</strong><small>${escapeHtml(bookingDateLabel(appointment.date))} · ${escapeHtml(formatSlotTime(appointment.time))}</small></div></div>
+        <div class="timeline-row"><span class="timeline-dot"></span><div><strong id="queueAiMessage">Connecting to the doctor’s live queue…</strong><small id="queueUpdatedAt">Updating now</small></div></div>
+        <div class="timeline-row pending"><span class="timeline-dot"></span><div><strong id="queueReadyMessage">We’ll tell you when your turn is near</strong><small>Keep this tracker open for live updates</small></div></div>
       </div>
       <button class="btn btn-secondary btn-block" data-action="directions">${svg("navigation")} Get clinic directions</button>
     </div>`);
@@ -1783,28 +2141,53 @@ function openQueue(id) {
       const liveQueue = await apiRequest(`/api/queues/${encodeURIComponent(appointment.doctorId)}?date=${encodeURIComponent(appointment.date || "")}&token=${encodeURIComponent(appointment.token || "")}`, { timeoutMs: 6000 });
       const estimatedWait = liveQueue.live?.etaMinutes;
       const estimatedAhead = liveQueue.live?.ahead;
+      const patientStatus = liveQueue.live?.patientStatus || "unknown";
       appointment.wait = estimatedWait ?? appointment.wait;
       appointment.ahead = estimatedAhead ?? appointment.ahead;
+      appointment.queueStatus = liveQueue.status || "closed";
+      appointment.patientQueueStatus = patientStatus;
       appointment.currentToken = liveQueue.current?.token || liveQueue.currentToken || appointment.currentToken;
       const currentNode = document.querySelector("#queueCurrentToken");
       const messageNode = document.querySelector("#queueAiMessage");
       const updatedNode = document.querySelector("#queueUpdatedAt");
+      const readyNode = document.querySelector("#queueReadyMessage");
+      const statusNode = document.querySelector("#queueStatusPill");
       if (currentNode) currentNode.textContent = appointment.currentToken || "—";
       if (messageNode) messageNode.textContent = liveQueue.live?.message || "Live queue connected";
       if (updatedNode) updatedNode.textContent = `Live · ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-    const waitNode = document.querySelector("#queueWait");
-    const aheadNode = document.querySelector("#patientsAhead");
+      if (readyNode) readyNode.textContent = patientStatus === "in-progress"
+        ? "It is your turn now"
+        : patientStatus === "completed"
+          ? "Consultation completed"
+          : estimatedAhead === 0
+            ? "You are next—please stay nearby"
+            : "We’ll tell you when your turn is near";
+      if (statusNode) {
+        const statusLabel = liveQueue.status === "live" ? "● LIVE · OPD running" : liveQueue.status === "paused" ? "Queue paused" : "Queue closed";
+        statusNode.textContent = statusLabel;
+        statusNode.className = `status-pill ${liveQueue.status === "live" ? "" : liveQueue.status === "paused" ? "orange" : "blue"}`.trim();
+      }
+      const waitNode = document.querySelector("#queueWait");
+      const aheadNode = document.querySelector("#patientsAhead");
       const nextWait = estimatedWait > 0 ? `${estimatedWait} min` : estimatedWait === 0 ? "Any moment" : "Checking";
       const nextAhead = estimatedAhead == null ? "—" : String(estimatedAhead);
-    if (waitNode && waitNode.textContent !== nextWait) {
-      waitNode.textContent = nextWait;
-      window.SehatMotion?.highlight(waitNode);
-    }
-    if (aheadNode && aheadNode.textContent !== nextAhead) {
-      aheadNode.textContent = nextAhead;
-      window.SehatMotion?.highlight(aheadNode);
-    }
-    } catch {
+      if (waitNode && waitNode.textContent !== nextWait) {
+        waitNode.textContent = nextWait;
+        window.SehatMotion?.highlight(waitNode);
+      }
+      if (aheadNode && aheadNode.textContent !== nextAhead) {
+        aheadNode.textContent = nextAhead;
+        window.SehatMotion?.highlight(aheadNode);
+      }
+    } catch (error) {
+      if (error.status === 401) {
+        closeQueueTimer();
+        state.authToken = "";
+        localStorage.removeItem("sehatline-auth-token");
+        openAuth("login");
+        toast("Please sign in again to view your private queue.", "alert");
+        return;
+      }
       const messageNode = document.querySelector("#queueAiMessage");
       if (messageNode) messageNode.textContent = "Reconnecting to the clinic queue…";
     }
@@ -2359,6 +2742,24 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const placeTarget = event.target.closest("[data-location-place]");
+  if (placeTarget) { selectHealthcareLocation(placeTarget.dataset.locationPlace); return; }
+
+  const carePage = event.target.closest("[data-care-page]");
+  if (carePage && !carePage.disabled) {
+    const target = state.route === "public-care" ? state.publicCareFilters : state.ecosystemFilters;
+    target.page = Number(carePage.dataset.carePage) || 1;
+    loadPatientEcosystemRoute();
+    return;
+  }
+
+  const paymentChoice = event.target.closest("[data-payment-choice]");
+  if (paymentChoice && !paymentChoice.disabled) {
+    state.bookingDraft.paymentMode = paymentChoice.dataset.paymentChoice;
+    document.querySelectorAll("[data-payment-choice]").forEach(button => button.classList.toggle("active", button === paymentChoice));
+    return;
+  }
+
   const bookingNext = event.target.closest("[data-booking-next]");
   if (bookingNext) {
     const step = Number(bookingNext.dataset.bookingNext);
@@ -2427,6 +2828,20 @@ document.addEventListener("click", (event) => {
     location: openLocation,
     "doctor-profile": () => openDoctorProfile(id),
     "lab-details": () => openLabDetails(id),
+    "public-detail": () => openPublicDetail(id),
+    "support-detail": () => openSupportDetail(actionTarget.dataset.kind, id),
+    "go-public-care": () => navigate("public-care"),
+    "go-health-support": () => navigate("health-support"),
+    "retry-ecosystem": () => loadPatientEcosystemRoute(),
+    "toggle-healthcare-save": () => toggleHealthcareSave(actionTarget.dataset.kind, id),
+    "use-current-location": useCurrentHealthcareLocation,
+    "change-healthcare-location": () => { state.locationQuery = ""; state.locationSuggestions = []; render(); requestAnimationFrame(() => document.querySelector("[data-location-search]")?.focus()); },
+    "clear-location-query": () => { state.locationQuery = ""; state.locationSuggestions = []; state.locationSearchError = ""; render(); },
+    "clear-care-filters": () => {
+      if (state.route === "public-care") state.publicCareFilters = { search:"",state:"",district:"",city:"",block:"",type:"",page:1,pages:1 };
+      else state.ecosystemFilters = { search:"",state:"",district:"",city:"",block:"",pincode:"",type:"",category:"",page:1,pages:1 };
+      loadPatientEcosystemRoute();
+    },
     "book-doctor": () => {
       state.bookingDraft = {};
       openBooking(id, 1);
@@ -2659,6 +3074,7 @@ document.addEventListener("click", (event) => {
       state.authToken = payload.token || "";
       if (state.authToken) localStorage.setItem("sehatline-auth-token", state.authToken);
       await hydrateRemoteData();
+      await loadSavedItems();
       const root = document.querySelector("#modalRoot");
       delete root.dataset.authRequired;
       closeModal();
@@ -2729,6 +3145,7 @@ document.addEventListener("click", (event) => {
         state.authToken = payload.token || state.pendingAuthToken;
         if (state.authToken) localStorage.setItem("sehatline-auth-token", state.authToken);
         await hydrateRemoteData();
+        await loadSavedItems();
         state.identityVerificationId = "";
         openIdentitySuccess(payload);
       } catch (error) {
@@ -2744,6 +3161,63 @@ document.addEventListener("click", (event) => {
     voice: startVoiceAssistant
   };
   actions[action]?.();
+});
+
+document.addEventListener("change", event => {
+  const locationState = event.target.closest("[data-location-state]");
+  if (locationState) { state.locationStateContext = locationState.value; localStorage.setItem("sehatline-location-state-context", state.locationStateContext); state.locationLastQuery = ""; state.locationSuggestions = []; state.locationSearchError = ""; updateLocationSuggestionPanel(); document.querySelector("[data-location-search]")?.focus(); return; }
+  const field = event.target.closest("[data-public-filter]");
+  if (!field) return;
+  state.publicCareFilters[field.dataset.publicFilter] = field.value;
+  render();
+});
+
+document.addEventListener("change", event => {
+  const radius = event.target.closest("[data-healthcare-radius]");
+  if (radius) { state.healthcareRadius = Number(radius.value); localStorage.setItem("sehatline-healthcare-radius", String(state.healthcareRadius)); loadPatientEcosystemRoute(); return; }
+  const field = event.target.closest("[data-care-filter]"); if (!field) return;
+  if (field.matches("input")) return;
+  const target = state.route === "public-care" ? state.publicCareFilters : state.ecosystemFilters;
+  target[field.dataset.careFilter] = field.value; target.page = 1; loadPatientEcosystemRoute();
+});
+
+document.addEventListener("input", event => {
+  const locationField = event.target.closest("[data-location-search]");
+  if (locationField) {
+    state.locationQuery = locationField.value; state.locationActiveIndex = -1; state.locationSearchError = "";
+    clearTimeout(state.locationSearchTimer);
+    if (state.locationQuery.trim().length < 2) { state.locationRequestId += 1; state.locationLastQuery = ""; state.locationSuggestions = []; state.locationSearchLoading = false; updateLocationSuggestionPanel(); return; }
+    state.locationSearchTimer = setTimeout(() => searchHealthcareLocations(state.locationQuery.trim()), 320);
+    return;
+  }
+  const field = event.target.closest('[data-care-filter="search"], [data-care-filter="city"]'); if (!field) return;
+  const target = state.route === "public-care" ? state.publicCareFilters : state.ecosystemFilters;
+  target[field.dataset.careFilter] = field.value; target.page = 1;
+  clearTimeout(state.ecosystemSearchTimer); state.ecosystemSearchTimer = setTimeout(loadPatientEcosystemRoute, 350);
+});
+
+document.addEventListener("keydown", event => {
+  if (!event.target.matches("[data-location-search]")) return;
+  if (event.key === "Escape") { state.locationSuggestions = []; state.locationSearchError = ""; updateLocationSuggestionPanel(); return; }
+  if (!["ArrowDown","ArrowUp","Enter"].includes(event.key) || !state.locationSuggestions.length) return;
+  event.preventDefault();
+  if (event.key === "ArrowDown") state.locationActiveIndex = Math.min(state.locationSuggestions.length - 1, state.locationActiveIndex + 1);
+  if (event.key === "ArrowUp") state.locationActiveIndex = Math.max(0, state.locationActiveIndex - 1);
+  if (event.key === "Enter") { const item = state.locationSuggestions[Math.max(0,state.locationActiveIndex)]; if (item) selectHealthcareLocation(item.placeId); return; }
+  updateLocationSuggestionPanel();
+});
+
+document.addEventListener("click", event => {
+  if (event.target.closest(".healthcare-location")) return;
+  if (state.locationSuggestions.length) { state.locationSuggestions = []; document.querySelector(".location-suggestions")?.remove(); }
+});
+
+document.addEventListener("input", event => {
+  const field = event.target.closest('[data-public-filter="search"]');
+  if (!field) return;
+  state.publicCareFilters.search = field.value;
+  const query = field.value.toLowerCase();
+  document.querySelectorAll(".network-grid > .network-card").forEach(card => { card.hidden = Boolean(query) && !card.textContent.toLowerCase().includes(query); });
 });
 
 document.addEventListener("input", (event) => {
@@ -2806,6 +3280,7 @@ document.addEventListener("keydown", (event) => {
 
 window.addEventListener("hashchange", () => {
   render();
+  loadPatientEcosystemRoute();
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
 
@@ -2829,7 +3304,7 @@ setTimeout(() => {
   document.querySelector("#splash")?.classList.add("hidden");
   if (!state.authToken) openAuth();
 }, 1900);
-hydrateRemoteData();
+hydrateRemoteData().then(async () => { await loadSavedItems(); await loadPatientEcosystemRoute(); });
 
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));

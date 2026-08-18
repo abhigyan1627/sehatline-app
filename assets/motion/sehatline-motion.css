@@ -10,13 +10,14 @@
 
 html { scroll-behavior: smooth; }
 
+/* Keep Android/Chrome from painting its blue tap rectangle over SehatLine UI. */
+*, *::before, *::after {
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   transition: background-color var(--motion-duration-base) var(--motion-ease-standard),
     color var(--motion-duration-base) var(--motion-ease-standard);
-}
-
-button, [role="button"], a, input, select, textarea {
-  -webkit-tap-highlight-color: transparent;
 }
 
 button:not(:disabled), [role="button"]:not([aria-disabled="true"]), a {
@@ -28,7 +29,15 @@ button:not(:disabled), [role="button"]:not([aria-disabled="true"]), a {
 }
 
 button:not(:disabled):active,
-[role="button"]:not([aria-disabled="true"]):active { transform: scale(.975); }
+[role="button"]:not([aria-disabled="true"]):active,
+a[href]:active {
+  transform: scale(.975);
+  filter: saturate(1.08) brightness(.98);
+}
+
+:is(button, [role="button"], a[href], summary) {
+  touch-action: manipulation;
+}
 
 [data-motion-item] {
   --motion-item-delay: min(calc(var(--motion-index, 0) * var(--motion-stagger-step)), 280ms);

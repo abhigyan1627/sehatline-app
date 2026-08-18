@@ -55,6 +55,7 @@ test("owner-assigned receptionist securely operates only the assigned doctor's l
         name: "Dr. Assigned",
         specialty: "General Physician",
         clinic: "Assigned Care Clinic",
+        fee: 500,
         phone: "+91 90000 00001",
         email: "assigned@example.test",
         status: "verified",
@@ -158,6 +159,18 @@ test("owner-assigned receptionist securely operates only the assigned doctor's l
     assert.equal(walkin.token, "T001");
     assert.equal(String(walkin.status).toLowerCase(), "checked-in");
 
+    const dueDashboardResponse = await fetch(`${baseUrl}/api/receptionist/dashboard?doctorId=doctor-assigned&date=${date}`, { headers: { Cookie: receptionist.cookie } });
+    const dueDashboard = await bodyFrom(dueDashboardResponse);
+    assert.equal(dueDashboard.collections.dueAmount, 500);
+    assert.equal(dueDashboard.collections.cashAmount, 0);
+
+    const cashReceivedResponse = await fetch(`${baseUrl}/api/receptionist/appointments/${encodeURIComponent(walkin.id)}`, {
+      method: "PATCH",
+      headers: jsonHeaders(receptionist.cookie, receptionist.body.csrfToken),
+      body: JSON.stringify({ doctorId: "doctor-assigned", paymentStatus: "paid" })
+    });
+    assert.equal(cashReceivedResponse.status, 200);
+
     const startQueue = await fetch(`${baseUrl}/api/receptionist/queue/start`, {
       method: "POST",
       headers: jsonHeaders(receptionist.cookie, receptionist.body.csrfToken),
@@ -178,6 +191,9 @@ test("owner-assigned receptionist securely operates only the assigned doctor's l
     assert.equal(dashboardResponse.status, 200);
     assert.equal(dashboard.metrics.totalAppointments, 1);
     assert.equal(dashboard.queue.currentToken, "T001");
+    assert.equal(dashboard.collections.cashAmount, 500);
+    assert.equal(dashboard.collections.cashCount, 1);
+    assert.equal(dashboard.collections.dueAmount, 0);
     assert.equal((await fetch(`${baseUrl}/receptionist/`)).status, 200);
   } finally {
     await new Promise(resolve => server.close(resolve));

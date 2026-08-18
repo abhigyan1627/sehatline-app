@@ -28,6 +28,7 @@ test("approved doctor login publishes a capped daily queue and issues real seque
     uploadRoot,
     providerFetch,
     otpSandboxEnabled: true,
+    requirePatientAuth: true,
     logger: { error() {}, warn() {} }
   });
 
@@ -111,6 +112,7 @@ test("approved doctor login publishes a capped daily queue and issues real seque
       }, patientLogin.token);
       const booking = await response.json();
       assert.equal(response.status, 201);
+      assert.equal(booking.patientId, "9123456789");
       tokens.push(booking.token);
     }
     assert.deepEqual(tokens, ["T001", "T002", "T003"]);
@@ -123,21 +125,45 @@ test("approved doctor login publishes a capped daily queue and issues real seque
     }, patientLogin.token);
     assert.equal(fullResponse.status, 409);
 
-    const queue = await fetch(`${url}/api/queues/doctor-real-1?date=2026-08-06&token=T003`).then(response => response.json());
+    const unauthenticatedQueue = await fetch(`${url}/api/queues/doctor-real-1?date=2026-08-06&token=T003`);
+    assert.equal(unauthenticatedQueue.status, 401);
+
+    const queueResponse = await fetch(`${url}/api/queues/doctor-real-1?date=2026-08-06&token=T003`, { headers: { Authorization: `Bearer ${patientLogin.token}` } });
+    const queue = await queueResponse.json();
+    assert.equal(queueResponse.status, 200);
     assert.equal(queue.capacity, 3);
     assert.equal(queue.issued, 3);
     assert.equal(queue.remaining, 0);
-    assert.equal(queue.waiting.length, 3);
+    assert.equal("waiting" in queue, false);
+    assert.equal("current" in queue, false);
     assert.equal(queue.live.patientStatus, "waiting");
     assert.equal(queue.live.ahead, 2);
+    assert.equal(queue.live.etaMinutes, null);
+    assert.equal(queue.status, "closed");
+    assert.match(queue.live.message, /not started|closed/i);
+
+    await jsonRequest(`${url}/api/auth/send-otp`, "POST", { phone: "9234567890" });
+    const otherPatientLogin = await jsonRequest(`${url}/api/auth/verify-otp`, "POST", { phone: "9234567890", otp: "123456" }).then(response => response.json());
+    const privateQueue = await fetch(`${url}/api/queues/doctor-real-1?date=2026-08-06&token=T003`, { headers: { Authorization: `Bearer ${otherPatientLogin.token}` } });
+    assert.equal(privateQueue.status, 404);
 
     const startQueue = await jsonRequest(`${url}/api/doctor/queue/start`, "POST", { date: "2026-08-06" }, login.token);
     assert.equal(startQueue.status, 200);
+    const startedPatientQueue = await fetch(`${url}/api/queues/doctor-real-1?date=2026-08-06&token=T003`, { headers: { Authorization: `Bearer ${patientLogin.token}` } }).then(response => response.json());
+    assert.equal(startedPatientQueue.status, "live");
+    assert.equal(startedPatientQueue.live.etaMinutes, 30);
+    assert.match(startedPatientQueue.live.message, /2 patients ahead/i);
     const nextQueue = await jsonRequest(`${url}/api/doctor/queue/next`, "POST", { date: "2026-08-06" }, login.token);
     const liveQueue = await nextQueue.json();
     assert.equal(nextQueue.status, 200);
     assert.equal(liveQueue.current.token, "T001");
     assert.equal(liveQueue.waiting.length, 2);
+
+    const currentPatientQueue = await fetch(`${url}/api/queues/doctor-real-1?date=2026-08-06&token=T001`, { headers: { Authorization: `Bearer ${patientLogin.token}` } }).then(response => response.json());
+    assert.equal(currentPatientQueue.status, "live");
+    assert.equal(currentPatientQueue.live.patientStatus, "in-progress");
+    assert.equal(currentPatientQueue.live.ahead, 0);
+    assert.equal(currentPatientQueue.live.etaMinutes, 0);
   } finally {
     await new Promise(resolve => server.close(resolve));
     await rm(tempDirectory, { recursive: true, force: true });

@@ -12,7 +12,9 @@ const state = {
   patients: [],
   patientQuery: "",
   busy: false,
-  walkinResult: null
+  walkinResult: null,
+  liveTimer: null,
+  liveSyncBusy: false
 };
 
 const icons = {
@@ -143,6 +145,15 @@ function enterPortal() {
   populateDoctors();
   state.route = routeFromHash();
   loadWorkspace();
+  clearInterval(state.liveTimer);
+  state.liveTimer = setInterval(async () => {
+    const activeElement = document.activeElement;
+    const interacting = activeElement && activeElement !== document.body && activeElement.id !== "main";
+    if (document.hidden || interacting || state.liveSyncBusy || !state.staff) return;
+    state.liveSyncBusy = true;
+    try { await loadWorkspace({ silent: true }); }
+    finally { state.liveSyncBusy = false; }
+  }, 6000);
 }
 
 function populateDoctors() {
@@ -178,7 +189,7 @@ function emptyMarkup(title, copy, iconName = "calendar") {
   return `<div class="empty"><span>${icon(iconName)}</span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(copy)}</small></div>`;
 }
 
-async function loadWorkspace() {
+async function loadWorkspace({ silent = false } = {}) {
   updateChrome();
   if (!state.doctors.length) {
     state.doctorId = "";
@@ -188,7 +199,7 @@ async function loadWorkspace() {
   }
   state.doctorId ||= state.doctors[0].id;
   $("#doctorSelect").value = state.doctorId;
-  $("#main").innerHTML = loadingMarkup();
+  if (!silent) $("#main").innerHTML = loadingMarkup();
   try {
     state.dashboard = await api(`/receptionist/dashboard?doctorId=${encodeURIComponent(state.doctorId)}&date=${encodeURIComponent(state.date)}`);
     state.doctors = state.dashboard.doctors || state.doctors;
@@ -196,7 +207,7 @@ async function loadWorkspace() {
     renderRoute();
   } catch (error) {
     if (["AUTH_REQUIRED", "SESSION_EXPIRED"].includes(error.code)) return showLogin("Your secure session expired. Please log in again.");
-    $("#main").innerHTML = emptyMarkup("Clinic data unavailable", error.message, "shield");
+    if (!silent) $("#main").innerHTML = emptyMarkup("Clinic data unavailable", error.message, "shield");
   }
 }
 
@@ -209,16 +220,28 @@ function metricCard(iconName, value, label) {
   return `<article class="metric-card"><span class="metric-icon">${icon(iconName)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(label)}</small></article>`;
 }
 
+const money = value => `₹${Number(value || 0).toLocaleString("en-IN")}`;
+
+function collectionMarkup(collections = {}) {
+  return `<section class="collection-grid" aria-label="Today's clinic collections">
+    <article class="collection-card online"><span>${icon("wallet")}</span><div><small>Online received</small><strong>${money(collections.onlineAmount)}</strong><em>${Number(collections.onlineCount || 0)} paid bookings</em></div></article>
+    <article class="collection-card cash"><span>${icon("wallet")}</span><div><small>Cash collected</small><strong>${money(collections.cashAmount)}</strong><em>${Number(collections.cashCount || 0)} recorded at desk</em></div></article>
+    <article class="collection-card due"><span>${icon("clock")}</span><div><small>Cash / payment due</small><strong>${money(collections.dueAmount)}</strong><em>${Number(collections.dueCount || 0)} appointments</em></div></article>
+    <article class="collection-card total"><span>${icon("chart")}</span><div><small>Total collected</small><strong>${money(collections.collectedAmount)}</strong><em>Online + received cash</em></div></article>
+  </section>`;
+}
+
 function appointmentRow(appointment, compact = false) {
   const status = normalizeStatus(appointment.status);
   const checkinAvailable = ["confirmed", "pending"].includes(status);
   return `<div class="appointment-row">
     <span class="appointment-time"><strong>${escapeHtml(displayTime(appointment.time))}</strong><small>${escapeHtml(appointment.token || "No token")}</small></span>
     <span class="patient-name"><strong>${escapeHtml(appointment.name || appointment.patientName || "Patient")}</strong><small>${escapeHtml(appointment.phone || "Mobile not provided")}</small></span>
-    <span class="appointment-reason"><strong>${escapeHtml(appointment.reason || "Consultation")}</strong><small>${escapeHtml(appointment.type || "Clinic visit")}</small></span>
+    <span class="appointment-reason"><strong>${escapeHtml(appointment.reason || "Consultation")}</strong><small>${escapeHtml(appointment.type || "Clinic visit")}</small><i class="payment-label ${appointment.paymentStatus === "paid" ? "paid" : "due"}">${appointment.paymentMode === "online" ? "Online" : "Cash"} · ${appointment.paymentStatus === "paid" ? `${money(appointment.amount)} paid` : `${money(appointment.amount)} due`}</i></span>
     <span class="appointment-status"><i class="status ${status}">${escapeHtml(status.replaceAll("-", " "))}</i></span>
     <span class="row-actions">
       ${checkinAvailable ? `<button class="button small primary" data-appointment-status="checked-in" data-id="${escapeHtml(appointment.id)}"><span>Check in</span>${icon("check")}</button>` : ""}
+      ${appointment.paymentMode === "cash" && appointment.paymentStatus !== "paid" ? `<button class="button small cash-button" data-cash-received data-id="${escapeHtml(appointment.id)}"><span>Cash received</span>${icon("wallet")}</button>` : ""}
       ${!["completed", "cancelled", "no-show"].includes(status) ? `<button class="button small danger" data-appointment-status="no-show" data-id="${escapeHtml(appointment.id)}" aria-label="Mark no-show">${icon("x")}</button>` : ""}
     </span>
   </div>`;
@@ -243,6 +266,7 @@ function renderDashboard() {
       ${metricCard("shield", metrics.completed || 0, "Completed")}
       ${metricCard("ticket", metrics.remainingTokens || 0, "Tokens remaining")}
     </section>
+    ${collectionMarkup(data.collections)}
     <section class="dashboard-grid">
       <article class="panel"><div class="panel-head"><div><h3>Today’s appointments</h3><p>Real bookings for the selected doctor and date</p></div><button class="button small" data-route="appointments">View all ${icon("arrow")}</button></div><div class="appointment-list">${data.appointments?.length ? data.appointments.slice(0, 6).map(item => appointmentRow(item, true)).join("") : emptyMarkup("No appointments yet", "Bookings and walk-ins will appear here.")}</div></article>
       <article class="panel"><div class="panel-head"><div><h3>Live queue</h3><p>${queue.waiting?.length || 0} patients waiting</p></div><i class="status ${normalizeStatus(queue.status)}">${escapeHtml(queue.status || "closed")}</i></div><div class="queue-panel-body"><div class="current-token"><span class="token">${escapeHtml(queue.currentToken || "—")}</span><span><strong>${escapeHtml(current?.name || "No patient called")}</strong><small>${escapeHtml(current?.reason || "Start the queue when the clinic is ready")}</small></span></div><div class="queue-list">${queue.waiting?.length ? queue.waiting.slice(0, 5).map(queueItem).join("") : emptyMarkup("Queue is clear", "Checked-in patients will appear here.", "activity")}</div></div></article>
@@ -252,7 +276,7 @@ function renderDashboard() {
 function renderAppointments() {
   const appointments = state.dashboard?.appointments || [];
   $("#main").innerHTML = `<div class="page-head"><div><p class="eyebrow">PATIENT ARRIVALS</p><h2>Appointments</h2><p>Check patients in and keep the doctor’s real token queue accurate.</p></div><div class="head-actions"><button class="button" data-refresh>${icon("refresh")} Refresh</button><button class="button primary" data-route="walk-in">${icon("user-plus")} Add walk-in</button></div></div>
-    <section class="panel"><div class="panel-head"><div><h3>${escapeHtml(displayDate(state.date))}</h3><p>${appointments.length} appointments found</p></div><label class="search-box">${icon("search")}<input id="appointmentSearch" placeholder="Search patient, phone or token"></label></div><div class="appointment-list" id="appointmentResults">${appointments.length ? appointments.map(appointmentRow).join("") : emptyMarkup("No appointments", "The doctor has no bookings for this date.")}</div></section>`;
+    ${collectionMarkup(state.dashboard?.collections)}<section class="panel"><div class="panel-head"><div><h3>${escapeHtml(displayDate(state.date))}</h3><p>${appointments.length} appointments found</p></div><label class="search-box">${icon("search")}<input id="appointmentSearch" placeholder="Search patient, phone or token"></label></div><div class="appointment-list" id="appointmentResults">${appointments.length ? appointments.map(appointmentRow).join("") : emptyMarkup("No appointments", "The doctor has no bookings for this date.")}</div></section>`;
 }
 
 function renderQueue() {
@@ -290,8 +314,16 @@ async function loadPatients(render = true) {
 
 async function updateAppointment(id, status) {
   try {
-    await api(`/receptionist/appointments/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ doctorId: state.doctorId, status }) });
+    await api(`/receptionist/appointments/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ doctorId: state.doctorId, date: state.date, status }) });
     toast(status === "checked-in" ? "Patient checked in and queue updated" : `Appointment marked ${status}`);
+    await loadWorkspace();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function markCashReceived(id) {
+  try {
+    await api(`/receptionist/appointments/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ doctorId: state.doctorId, date: state.date, paymentStatus: "paid" }) });
+    toast("Cash payment recorded and synced to the doctor");
     await loadWorkspace();
   } catch (error) { toast(error.message, "error"); }
 }
@@ -313,6 +345,8 @@ document.addEventListener("click", async event => {
   if (toggle) { const input = $(`#${toggle.dataset.togglePassword}`); input.type = input.type === "password" ? "text" : "password"; toggle.textContent = input.type === "password" ? "Show" : "Hide"; return; }
   const statusButton = event.target.closest("[data-appointment-status]");
   if (statusButton) return updateAppointment(statusButton.dataset.id, statusButton.dataset.appointmentStatus);
+  const cashButton = event.target.closest("[data-cash-received]");
+  if (cashButton) return markCashReceived(cashButton.dataset.id);
   const queueButton = event.target.closest("[data-queue-action]");
   if (queueButton) return queueAction(queueButton.dataset.queueAction);
   if (event.target.closest("[data-refresh]")) return loadWorkspace();
@@ -390,7 +424,7 @@ $("#doctorSelect").addEventListener("change", event => { state.doctorId = event.
 $("#deskDate").addEventListener("change", event => { state.date = event.target.value || localDateKey(); state.walkinResult = null; loadWorkspace(); });
 $("#menuButton").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
 $("#profileButton").addEventListener("click", () => toast(`${state.staff?.fullName} · ${state.staff?.adminId}`));
-$("#logoutButton").addEventListener("click", async () => { try { await api("/receptionist/auth/logout", { method: "POST", body: "{}" }); } catch {} state.csrfToken = ""; state.staff = null; showLogin("You have been logged out securely."); });
+$("#logoutButton").addEventListener("click", async () => { try { await api("/receptionist/auth/logout", { method: "POST", body: "{}" }); } catch {} clearInterval(state.liveTimer); state.csrfToken = ""; state.staff = null; showLogin("You have been logged out securely."); });
 window.addEventListener("hashchange", () => { state.route = routeFromHash(); renderRoute(); window.scrollTo({ top: 0, behavior: "smooth" }); });
 
 async function restoreSession() {

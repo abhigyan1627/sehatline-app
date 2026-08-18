@@ -45,6 +45,9 @@ const state = {
   bookings: fallback.bookings,
   users: fallback.users,
   notifications: fallback.notifications,
+  publicFacilities: [], healthSupportLocations: [], governmentSchemes: [], insurancePlans: [], networkTab: "publicFacilities",
+  networkFilters: { search: "", type: "all", state: "all", district: "all", status: "all" },
+  networkFormCollection: "publicFacilities",
   doctorFilter: "all",
   labFilter: "all",
   searches: { doctors: "", labs: "", bookings: "", users: "" },
@@ -118,6 +121,10 @@ async function loadData() {
     api("/admin/bookings"),
     api("/admin/patients"),
     api("/admin/notifications")
+    ,api("/admin/public-facilities?limit=50")
+    ,api("/admin/health-support-locations?limit=50")
+    ,api("/admin/government-schemes?limit=50")
+    ,api("/admin/insurance-plans?limit=50")
   ]);
   if (requests[0].status === "fulfilled") state.overview = { ...state.overview, ...requests[0].value };
   if (requests[1].status === "fulfilled") state.doctors = unwrapList(requests[1].value, ["doctors", "items"]);
@@ -125,6 +132,7 @@ async function loadData() {
   if (requests[3].status === "fulfilled") state.bookings = unwrapList(requests[3].value, ["bookings", "items"]);
   if (requests[4].status === "fulfilled" && unwrapList(requests[4].value, ["users", "items"]).length) state.users = unwrapList(requests[4].value, ["users", "items"]);
   if (requests[5].status === "fulfilled") state.notifications = unwrapList(requests[5].value, ["notifications", "items"]);
+  ["publicFacilities","healthSupportLocations","governmentSchemes","insurancePlans"].forEach((key,index) => { if (requests[index + 6]?.status === "fulfilled") state[key] = unwrapList(requests[index + 6].value,["items"]); });
   const expired = requests.find(result => result.status === "rejected" && ["AUTH_REQUIRED", "SESSION_EXPIRED"].includes(result.reason?.code));
   if (expired) {
     showLogin("Your session expired. Please log in again.");
@@ -143,6 +151,7 @@ function renderAll() {
   renderUsers();
   renderAnalytics();
   renderNotifications();
+  renderHealthcareNetwork();
   const activeView = $(".view.active");
   window.SehatMotion?.enhance(activeView);
   window.SehatMotion?.animateNumbers(activeView, "[data-metric], .booking-summary strong, .insight-card strong, .big-stat strong");
@@ -157,8 +166,31 @@ function normalizeOverview() {
     bookings: o.bookings ?? o.totalBookings ?? state.bookings.length,
     pendingDoctors: o.pendingDoctors ?? state.doctors.filter(item => item.status === "pending" || item.verified === false).length,
     pendingLabs: o.pendingLabs ?? state.labs.filter(item => item.status === "pending" || item.verified === false).length,
-    revenue: o.revenue ?? o.grossBookingValue ?? state.bookings.reduce((sum, item) => sum + Number(item.amount || item.fee || 0), 0)
+    revenue: o.revenue ?? o.grossBookingValue ?? state.bookings.reduce((sum, item) => sum + Number(item.amount || item.fee || 0), 0),
+    publicFacilities: o.publicFacilities ?? state.publicFacilities.length,
+    healthSupportLocations: o.healthSupportLocations ?? state.healthSupportLocations.length,
+    governmentSchemes: o.governmentSchemes ?? state.governmentSchemes.length,
+    insurancePlans: o.insurancePlans ?? state.insurancePlans.length
   };
+}
+
+let adminLocationTimer;
+async function findAdminLocations(input, root) {
+  const list = root.querySelector("[data-admin-location-suggestions]");
+  list.hidden = false; list.innerHTML = `<div class="admin-location-status">Searching locations…</div>`;
+  try {
+    const payload = await api(`/location/autocomplete?input=${encodeURIComponent(input)}`);
+    list.innerHTML = (payload.suggestions || []).map(item => `<button type="button" data-admin-place="${escapeHtml(item.placeId)}"><strong>📍 ${escapeHtml(item.primaryText)}</strong><small>${escapeHtml(item.secondaryText)}</small></button>`).join("") || `<div class="admin-location-status">No matching Indian locations found.</div>`;
+  } catch { list.innerHTML = `<div class="admin-location-status">Location search is temporarily unavailable. Enter details manually.</div>`; }
+}
+async function applyAdminLocation(placeId, root) {
+  const list = root.querySelector("[data-admin-location-suggestions]"); list.innerHTML = `<div class="admin-location-status">Loading address…</div>`;
+  try {
+    const location = await api(`/location/place?placeId=${encodeURIComponent(placeId)}`);
+    const values = { placeId:location.placeId, formattedAddress:location.formattedAddress, country:location.country, state:location.state, district:location.district, city:location.city || location.town || location.village, block:location.sublocality || location.locality, pincode:location.postalCode, latitude:location.latitude, longitude:location.longitude, address:location.formattedAddress };
+    for (const [name,value] of Object.entries(values)) { const field = root.elements?.namedItem(name); if (field && value != null) field.value = value; }
+    root.querySelector("[data-admin-location-search]").value = location.formattedAddress || location.name; list.hidden = true; showToast("Address and coordinates populated");
+  } catch (error) { list.innerHTML = `<div class="admin-location-status">${escapeHtml(error.message || "Could not load this address")}</div>`; }
 }
 
 function renderOverview() {
@@ -314,6 +346,55 @@ function renderNotifications() {
     </article>`).join("") : `<div class="empty-state">No notifications sent yet.</div>`;
 }
 
+const networkConfig = {
+  publicFacilities: { title: "Public Facilities", add: "+ Add Facility", endpoint: "public-facilities", typeKey: "facilityType", types: [["GOVT_HOSPITAL","Government Hospital"],["PHC","PHC"],["CHC","CHC"],["SADAR_HOSPITAL","Sadar Hospital"],["MEDICAL_COLLEGE","Medical College"],["OTHER","Other"]], name: item => item.name, columns: ["Facility","Type","Location","Emergency","Verification","Status","Actions"] },
+  healthSupportLocations: { title: "Jan Aushadhi", add: "+ Add Jan Aushadhi Center", endpoint: "health-support/locations", typeKey: "type", types: [["JAN_AUSHADHI","Jan Aushadhi"],["PHARMACY","Pharmacy"],["OTHER","Other"]], name: item => item.name, columns: ["Center","Location","Contact","Verification","Status","Actions"] },
+  governmentSchemes: { title: "Government Schemes", add: "+ Add Scheme", endpoint: "government-schemes", typeKey: "governmentLevel", types: [["CENTRAL","Central"],["STATE","State"],["DISTRICT","District"]], name: item => item.name, columns: ["Scheme","Level","State","Category","Updated","Status","Actions"] },
+  insurancePlans: { title: "Insurance", add: "+ Add Insurance Plan", endpoint: "insurance", typeKey: "insuranceType", types: [["GOVERNMENT","Government"],["PRIVATE","Private"]], name: item => item.planName, columns: ["Plan","Provider","Type","State","Verification","Status","Actions"] }
+};
+
+function renderHealthcareNetwork() {
+  const config = networkConfig[state.networkTab];
+  const title = $("#networkAdminTitle"); if (!title) return;
+  title.textContent = config.title;
+  $("[data-network-add]").textContent = `＋ ${config.add.replace(/^\+\s*/, "")}`;
+  const typeFilter = $("#networkTypeFilter");
+  typeFilter.innerHTML = `<option value="all">All types</option>${config.types.map(([value,label]) => `<option value="${value}" ${state.networkFilters.type === value ? "selected" : ""}>${label}</option>`).join("")}`;
+  const values = key => [...new Set(state[state.networkTab].map(item => item[key]).filter(Boolean))].sort();
+  $("#networkStateFilter").innerHTML = `<option value="all">All states</option>${values("state").map(value => `<option ${state.networkFilters.state === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}`;
+  $("#networkDistrictFilter").innerHTML = `<option value="all">All districts</option>${values("district").map(value => `<option ${state.networkFilters.district === value ? "selected" : ""}>${escapeHtml(value)}</option>`).join("")}`;
+  const f = state.networkFilters, query = f.search.toLowerCase();
+  const items = state[state.networkTab].filter(item => (!query || JSON.stringify(item).toLowerCase().includes(query)) && (f.type === "all" || item[config.typeKey] === f.type) && (f.state === "all" || item.state === f.state) && (f.district === "all" || item.district === f.district) && (f.status === "all" || (f.status === "active" && item.active !== false) || (f.status === "inactive" && item.active === false) || (f.status === "verified" && item.verified === true) || (f.status === "unverified" && item.verified !== true)));
+  const row = item => {
+    const coordinateWarning = ["publicFacilities","healthSupportLocations"].includes(state.networkTab) && (item.latitude == null || item.longitude == null) ? `<em class="coordinate-warning">Location coordinates missing</em>` : "";
+    const name = `<span><strong>${escapeHtml(config.name(item) || "Untitled")}</strong><small>${escapeHtml(item.city || item.shortDescription || item.description || "Information not available")}</small>${coordinateWarning}</span>`;
+    const verification = `<span class="badge ${item.verified ? "verified" : "pending"}">${item.verified ? "Verified" : "Unverified"}</span>`;
+    const status = `<span class="badge ${item.active === false ? "rejected" : "verified"}">${item.active === false ? "Inactive" : "Active"}</span>`;
+    const actions = `<span class="network-row-actions"><button data-network-view="${item.id}">View</button><button data-network-edit="${item.id}">Edit</button><button data-network-verify="${item.id}">${item.verified ? "Unverify" : "Verify"}</button><button data-network-toggle="${item.id}">${item.active === false ? "Enable" : "Disable"}</button></span>`;
+    if (state.networkTab === "publicFacilities") return [name,item.facilityType || "—",[item.city,item.district,item.state].filter(Boolean).join(", ") || "—",item.emergencyAvailable ? "Yes" : "No",verification,status,actions];
+    if (state.networkTab === "healthSupportLocations") return [name,[item.city,item.district,item.state].filter(Boolean).join(", ") || "—",item.phone || "—",verification,status,actions];
+    if (state.networkTab === "governmentSchemes") return [name,item.governmentLevel || "—",item.state || "All India",item.category || "—",displayDate(item.updatedAt || item.createdAt),status,actions];
+    return [name,item.provider || "—",item.insuranceType || "—",item.state || "All India",verification,status,actions];
+  };
+  $("#networkAdminGrid").innerHTML = `<div class="network-table-row network-table-head">${config.columns.map(column => `<span>${column}</span>`).join("")}</div>${items.length ? items.map(item => `<div class="network-table-row">${row(item).map(cell => `<span>${typeof cell === "string" ? cell : ""}</span>`).join("")}</div>`).join("") : `<div class="empty-admin-state"><strong>No ${escapeHtml(config.title.toLowerCase())} found</strong><p>Adjust filters or add verified information from an authoritative source.</p></div>`}`;
+}
+
+function openNetworkModal(id = "", viewOnly = false) {
+  state.networkFormCollection = state.networkTab;
+  openModal("healthcare", { mode: id ? viewOnly ? "view" : "edit" : "create", id });
+}
+
+async function toggleNetworkRecord(id) {
+  const config = networkConfig[state.networkTab], item = state[state.networkTab].find(entry => entry.id === id); if (!item) return;
+  const updated = await api(`/admin/${config.endpoint}/${encodeURIComponent(id)}/status`, { method:"PATCH", body:JSON.stringify({ active:item.active === false }) });
+  Object.assign(item, updated); renderHealthcareNetwork();
+}
+
+async function verifyNetworkRecord(id) {
+  const config = networkConfig[state.networkTab], item = state[state.networkTab].find(entry => entry.id === id); if (!item) return;
+  Object.assign(item, await api(`/admin/${config.endpoint}/${encodeURIComponent(id)}`, { method:"PATCH", body:JSON.stringify({ verified:!item.verified }) })); renderHealthcareNetwork();
+}
+
 const roleLabel = role => ({
   super_admin: "Super Admin",
   admin: "Admin",
@@ -393,6 +474,7 @@ const viewMeta = {
   users: ["Community", "User management"],
   analytics: ["City intelligence", "Performance analytics"],
   notifications: ["Patient engagement", "Notification center"],
+  "healthcare-network": ["Healthcare Network", "Public care & health support"],
   "admin-management": ["Security controls", "Admin Management"],
   "audit-logs": ["Security history", "Audit Logs"],
   "access-denied": ["Permission required", "Access denied"]
@@ -406,6 +488,7 @@ const viewPermissions = {
   users: ["patient_management"],
   analytics: ["analytics"],
   notifications: ["complaints_support"],
+  "healthcare-network": ["dashboard"],
   "admin-management": ["admin_management"],
   "audit-logs": ["audit_logs"]
 };
@@ -593,6 +676,19 @@ function adminFormFields(admin = {}) {
   </div>`;
 }
 
+function healthcareFormFields(item = {}, mode = "create") {
+  const collection = state.networkFormCollection, config = networkConfig[collection], disabled = mode === "view" ? "disabled" : "";
+  const field = (label, name, options = {}) => `<div class="field ${options.full ? "full" : ""}"><label>${label}${options.required ? " <b>*</b>" : ""}</label>${options.textarea ? `<textarea ${disabled} ${options.required ? "required" : ""} name="${name}" placeholder="${options.placeholder || ""}">${valueForInput(item[name])}</textarea>` : `<input ${disabled} ${options.required ? "required" : ""} ${options.type ? `type="${options.type}"` : ""} ${options.type === "number" ? "step=\"any\"" : ""} ${options.pattern ? `pattern="${options.pattern}"` : ""} name="${name}" value="${valueForInput(item[name])}" placeholder="${options.placeholder || ""}">`}</div>`;
+  const select = (label, name, options, value = item[name], full = false) => `<div class="field ${full ? "full" : ""}"><label>${label} <b>*</b></label><select ${disabled} required name="${name}">${options.map(([key,text]) => `<option value="${key}" ${value === key ? "selected" : ""}>${text}</option>`).join("")}</select></div>`;
+  const boolSelect = (label, name, value = item[name]) => select(label, name, [["true","Yes"],["false","No"]], String(value === true), false);
+  const location = `<div class="field full admin-location-picker"><label>Search actual address</label><input ${disabled} data-admin-location-search autocomplete="off" placeholder="Search hospital, village, area or PIN"><div class="admin-location-suggestions" data-admin-location-suggestions hidden></div><small>Select a Google suggestion to fill address and coordinates automatically.</small></div><input type="hidden" name="placeId" value="${valueForInput(item.placeId)}"><input type="hidden" name="formattedAddress" value="${valueForInput(item.formattedAddress)}">${field("Country","country",{placeholder:"India"})}${field("State","state",{required:true,placeholder:"Bihar"})}${field("District","district",{required:true,placeholder:"Gopalganj"})}${field("City","city",{placeholder:"Gopalganj"})}${field("Block / locality","block",{placeholder:"Block / locality"})}${field("PIN code","pincode",{pattern:"[1-9][0-9]{5}",placeholder:"841428"})}`;
+  const commonStatus = `${boolSelect("Verified","verified")}${boolSelect("Active","active",item.active !== false)}`;
+  if (collection === "publicFacilities") return `<div class="form-section-heading"><div><span>01</span><strong>Facility information</strong></div><p>Only publish information confirmed from an authoritative source.</p></div><div class="form-grid">${field("Facility name","name",{required:true,full:true,placeholder:"Government facility name"})}${select("Facility type","facilityType",config.types,item.facilityType,true)}${location}${field("Full address","address",{full:true,textarea:true,placeholder:"Complete address and landmark"})}${field("Phone","phone",{type:"tel"})}${field("Email","email",{type:"email"})}${field("OPD timing","opdTimings",{full:true,placeholder:"e.g. Monday–Saturday, 9 AM–2 PM"})}${boolSelect("Emergency available","emergencyAvailable")}${field("Departments","departments",{full:true,placeholder:"General Medicine, Pediatrics, Orthopedics"})}${field("Services","services",{full:true,placeholder:"OPD, Emergency, Diagnostics, Pharmacy"})}${field("Latitude","latitude",{type:"number"})}${field("Longitude","longitude",{type:"number"})}${field("Description","description",{full:true,textarea:true})}${commonStatus}</div>`;
+  if (collection === "healthSupportLocations") return `<div class="form-section-heading"><div><span>01</span><strong>Jan Aushadhi center</strong></div><p>Live medicine inventory is not collected in this module.</p></div><div class="form-grid">${field("Center name","name",{required:true,full:true})}<input type="hidden" name="type" value="JAN_AUSHADHI">${location}${field("Address","address",{full:true,textarea:true})}${field("Phone","phone",{type:"tel"})}${field("Email","email",{type:"email"})}${field("Opening hours","openingHours",{full:true})}${field("Services","services",{full:true,placeholder:"Generic medicines, Health products"})}${field("Latitude","latitude",{type:"number"})}${field("Longitude","longitude",{type:"number"})}${field("Description","description",{full:true,textarea:true})}${commonStatus}</div>`;
+  if (collection === "governmentSchemes") return `<div class="form-section-heading"><div><span>01</span><strong>Scheme information</strong></div><p>Eligibility information is indicative and must link to an official source.</p></div><div class="form-grid">${field("Scheme name","name",{required:true,full:true})}${select("Government level","governmentLevel",config.types,item.governmentLevel,true)}${field("Applicable state","state")}${field("Category","category",{required:true})}${field("Short description","shortDescription",{full:true})}${field("Full description","description",{full:true,textarea:true})}${field("Eligibility","eligibility",{full:true,textarea:true})}${field("Benefits","benefits",{full:true,placeholder:"Separate benefits with commas"})}${field("Required documents","requiredDocuments",{full:true,placeholder:"Separate documents with commas"})}${field("Application process","applicationProcess",{full:true,textarea:true})}${field("Official website","officialUrl",{type:"url",required:true,full:true})}${commonStatus}</div>`;
+  return `<div class="form-section-heading"><div><span>01</span><strong>Insurance information</strong></div><p>Do not imply or guarantee coverage.</p></div><div class="form-grid">${field("Provider","provider",{required:true})}${field("Plan name","planName",{required:true})}${select("Insurance type","insuranceType",config.types,item.insuranceType,true)}${field("Applicable state","state")}${field("Short description","shortDescription",{full:true})}${field("Description","description",{full:true,textarea:true})}${field("Eligibility","eligibility",{full:true,textarea:true})}${field("Benefits","benefits",{full:true,placeholder:"Separate benefits with commas"})}${field("Official website","officialUrl",{type:"url",required:true,full:true})}${commonStatus}</div>`;
+}
+
 const formTemplates = {
   doctor: {
     title: "Add doctor application",
@@ -618,6 +714,10 @@ const formTemplates = {
   admin: {
     title: "Create administrator",
     fields: adminFormFields
+  },
+  healthcare: {
+    title: "Healthcare Network record",
+    fields: healthcareFormFields
   }
 };
 
@@ -628,7 +728,9 @@ function openModal(type, options = {}) {
     ? state.doctors.find(item => String(item.id) === String(options.id))
     : type === "admin" && options.id
       ? state.admins.find(item => String(item.id) === String(options.id))
-      : {};
+      : type === "healthcare" && options.id
+        ? state[state.networkFormCollection].find(item => String(item.id) === String(options.id))
+        : {};
   if (type === "doctor" && options.id && !entity) {
     showToast("Doctor application could not be found");
     return;
@@ -640,14 +742,16 @@ function openModal(type, options = {}) {
   const doctorStatus = entity ? getStatus(entity) : "pending";
   $("#modalTitle").textContent = isDoctorReview
     ? `${doctorStatus === "verified" ? "Edit" : "Review"} ${entity.name || "doctor application"}`
-    : type === "admin" && mode === "edit" ? `Edit ${entity.fullName}` : template.title;
+    : type === "admin" && mode === "edit" ? `Edit ${entity.fullName}`
+      : type === "healthcare" ? `${mode === "create" ? "Add" : mode === "view" ? "View" : "Edit"} ${networkConfig[state.networkFormCollection].title}` : template.title;
   $("#formFields").innerHTML = typeof template.fields === "function" ? template.fields(entity, mode) : template.fields;
   $("#entityModal").classList.toggle("doctor-review-modal", type === "doctor");
   $("#verifyDoctor").hidden = !isDoctorReview || doctorStatus === "verified";
   $("#rejectDoctor").hidden = !isDoctorReview || doctorStatus === "verified";
   $("#saveEntity").textContent = type === "admin"
     ? mode === "edit" ? "Save access" : "Create admin"
-    : type === "doctor" && mode === "create" ? "Save application" : "Save details";
+    : type === "doctor" && mode === "create" ? "Save application" : type === "healthcare" ? "Save record" : "Save details";
+  $("#saveEntity").hidden = type === "healthcare" && mode === "view";
   $("#formError").hidden = true;
   $("#formError").textContent = "";
   $("#modalBackdrop").hidden = false;
@@ -827,6 +931,15 @@ async function submitEntity(event) {
         showToast("Administrator created securely");
         return;
       }
+    } else if (type === "healthcare") {
+      const config = networkConfig[state.networkFormCollection], formData = new FormData(event.currentTarget), payload = Object.fromEntries(formData);
+      for (const key of ["departments","services","benefits","requiredDocuments"]) if (payload[key] != null) payload[key] = String(payload[key]).split(",").map(value => value.trim()).filter(Boolean);
+      for (const key of ["active","verified","emergencyAvailable"]) if (payload[key] != null) payload[key] = payload[key] === "true";
+      for (const key of ["latitude","longitude"]) if (payload[key] !== "" && payload[key] != null) payload[key] = Number(payload[key]);
+      const isCreate = state.modalMode === "create";
+      const saved = await api(`/admin/${config.endpoint}${isCreate ? "" : `/${encodeURIComponent(state.modalEntityId)}`}`, { method:isCreate ? "POST" : "PUT", body:JSON.stringify(payload) });
+      const collection = state[state.networkFormCollection], index = collection.findIndex(item => item.id === saved.id);
+      if (index < 0) collection.unshift(saved); else collection[index] = saved;
     } else {
       const payload = Object.fromEntries(new FormData(event.currentTarget));
       payload.createdAt = new Date().toISOString();
@@ -838,7 +951,7 @@ async function submitEntity(event) {
     closeModal();
     renderAll();
     if (type === "admin") renderAdmins();
-    showToast(type === "doctor" ? "Doctor details saved" : `${formTemplates[type].title.replace("Add a", "").replace("Create", "")} saved successfully`);
+    showToast(type === "doctor" ? "Doctor details saved" : type === "healthcare" ? "Healthcare Network record saved" : `${formTemplates[type].title.replace("Add a", "").replace("Create", "")} saved successfully`);
   } catch (error) {
     showFormError(`Could not save: ${error.message}. No changes were confirmed.`);
     showToast("Save failed — please check the form and try again");
@@ -1217,6 +1330,11 @@ function bindEvents() {
   $("#adminSearch").addEventListener("input", event => { state.adminSearch = event.target.value; renderAdmins(); });
   $("#adminRoleFilter").addEventListener("change", event => { state.adminRoleFilter = event.target.value; renderAdmins(); });
   $("#adminStatusFilter").addEventListener("change", event => { state.adminStatusFilter = event.target.value; renderAdmins(); });
+  $("#networkSearch").addEventListener("input", event => { state.networkFilters.search = event.target.value; renderHealthcareNetwork(); });
+  $("#networkTypeFilter").addEventListener("change", event => { state.networkFilters.type = event.target.value; renderHealthcareNetwork(); });
+  $("#networkStateFilter").addEventListener("change", event => { state.networkFilters.state = event.target.value; renderHealthcareNetwork(); });
+  $("#networkDistrictFilter").addEventListener("change", event => { state.networkFilters.district = event.target.value; renderHealthcareNetwork(); });
+  $("#networkStatusFilter").addEventListener("change", event => { state.networkFilters.status = event.target.value; renderHealthcareNetwork(); });
   $$("[data-open-modal]").forEach(button => button.addEventListener("click", () => openModal(button.dataset.openModal)));
   $("#closeModal").addEventListener("click", closeModal);
   $("#cancelModal").addEventListener("click", closeModal);
@@ -1237,7 +1355,14 @@ function bindEvents() {
     if (group.dataset.filterGroup === "doctors") { state.doctorFilter = button.dataset.filter; renderDoctors(); }
     else { state.labFilter = button.dataset.filter; renderLabs(); }
   }));
-  document.addEventListener("click", event => {
+document.addEventListener("click", event => {
+  const networkOpen = event.target.closest("[data-network-open]"); if (networkOpen) { state.networkTab = networkOpen.dataset.networkOpen; state.networkFilters = { search:"",type:"all",state:"all",district:"all",status:"all" }; $$('[data-network-open]').forEach(node => node.classList.toggle('active', node === networkOpen)); $$('[data-network-tab]').forEach(node => node.classList.toggle('active', node.dataset.networkTab === state.networkTab)); renderHealthcareNetwork(); return; }
+  const networkTab = event.target.closest("[data-network-tab]"); if (networkTab) { state.networkTab = networkTab.dataset.networkTab; state.networkFilters = { search:"",type:"all",state:"all",district:"all",status:"all" }; $$('[data-network-tab]').forEach(node => node.classList.toggle('active', node === networkTab)); renderHealthcareNetwork(); return; }
+  if (event.target.closest("[data-network-add]")) { openNetworkModal(); return; }
+  const networkToggle = event.target.closest("[data-network-toggle]"); if (networkToggle) { toggleNetworkRecord(networkToggle.dataset.networkToggle).catch(error => showToast(error.message)); return; }
+  const networkVerify = event.target.closest("[data-network-verify]"); if (networkVerify) { verifyNetworkRecord(networkVerify.dataset.networkVerify).catch(error => showToast(error.message)); return; }
+  const networkView = event.target.closest("[data-network-view]"); if (networkView) { openNetworkModal(networkView.dataset.networkView, true); return; }
+  const networkEdit = event.target.closest("[data-network-edit]"); if (networkEdit) { openNetworkModal(networkEdit.dataset.networkEdit); return; }
     const directView = event.target.closest("[data-view]:not(.nav-item)");
     if (directView) switchView(directView.dataset.view);
     const editAdmin = event.target.closest("[data-admin-edit]");
@@ -1296,5 +1421,16 @@ async function initialize() {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
 }
+
+document.addEventListener("input", event => {
+  const input = event.target.closest("[data-admin-location-search]"); if (!input) return;
+  const root = input.closest("form"); clearTimeout(adminLocationTimer);
+  if (input.value.trim().length < 2) { root.querySelector("[data-admin-location-suggestions]").hidden = true; return; }
+  adminLocationTimer = setTimeout(() => findAdminLocations(input.value.trim(), root), 320);
+});
+document.addEventListener("click", event => {
+  const choice = event.target.closest("[data-admin-place]"); if (choice) { applyAdminLocation(choice.dataset.adminPlace, choice.closest("form")); return; }
+  if (!event.target.closest(".admin-location-picker")) document.querySelectorAll("[data-admin-location-suggestions]").forEach(list => { list.hidden = true; });
+});
 
 initialize().catch(() => showLogin("Admin Portal could not initialize. Please refresh and try again."));
