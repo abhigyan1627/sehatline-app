@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 610" role="img" aria-labelledby="title desc">
+  <title id="title">Animated SehatLine logo</title>
+  <desc id="desc">The SehatLine medical symbol and wordmark rapidly build themselves.</desc>
+  <defs>
+    <linearGradient id="brand" x1="42" y1="44" x2="218" y2="210" gradientUnits="userSpaceOnUse"><stop stop-color="#4d9fff"/><stop offset=".5" stop-color="#38d1e6"/><stop offset="1" stop-color="#5af0aa"/></linearGradient>
+    <linearGradient id="leaf" x1="174" y1="112" x2="226" y2="202" gradientUnits="userSpaceOnUse"><stop stop-color="#6bf3b6"/><stop offset="1" stop-color="#20c983"/></linearGradient>
+    <linearGradient id="blueWord" x1="70" y1="0" x2="365" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#5fa8ff"/><stop offset="1" stop-color="#44d4f2"/></linearGradient>
+    <linearGradient id="greenWord" x1="374" y1="0" x2="625" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#5ce7c6"/><stop offset="1" stop-color="#70f3b5"/></linearGradient>
+  </defs>
+  <style>
+    .draw,.beat,.rule{fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:700;stroke-dashoffset:700;animation:draw .25s cubic-bezier(.2,.8,.3,1) forwards}.arc{stroke:url(#brand);stroke-width:9}.scope{stroke:url(#brand);stroke-width:8;animation-delay:.1s}
+    .dot,.cross,.ring,.leaf,.heart{opacity:0;transform-box:fill-box;transform-origin:center;animation:pop .18s cubic-bezier(.2,1.3,.3,1) forwards}.dot{animation-delay:.22s}.cross{animation-delay:.25s;transform:scale(.55)}
+    .beat{stroke:#fff;stroke-width:8;animation-delay:.39s}.ring{animation-delay:.47s}.leaf{transform-origin:bottom left;animation-delay:.52s}.leaf.two{animation-delay:.6s}
+    .word{opacity:0;transform:translateY(13px);animation:word-in .19s cubic-bezier(.2,1,.3,1) forwards}.sehat{animation-delay:.66s}.line{animation-delay:.75s}.rule{stroke-dasharray:210;animation-duration:.2s;animation-delay:.82s}.heart{animation-delay:.87s}.tagline{opacity:0;animation:fade .18s ease-out .92s forwards}
+    @keyframes draw{to{stroke-dashoffset:0}}@keyframes pop{to{opacity:1;transform:scale(1)}}@keyframes word-in{to{opacity:1;transform:translateY(0)}}@keyframes fade{to{opacity:1}}
+    @media(prefers-reduced-motion:reduce){.draw,.beat,.rule,.dot,.cross,.ring,.leaf,.heart,.word,.tagline{animation:none;opacity:1;stroke-dashoffset:0;transform:none}}
+  </style>
+  <g transform="translate(158 8) scale(1.5)">
+    <path class="draw arc" d="M88 35c51-18 107 10 123 60M212 96c4 13 4 24 2 35"/>
+    <path class="draw scope" d="M47 55c-5 37 8 68 39 82 0 35 20 58 51 58 15 0 27-6 36-17M83 55c4 31-2 55-20 71"/>
+    <circle class="dot" cx="47" cy="51" r="9" fill="#4d9fff"/><circle class="dot" cx="84" cy="51" r="9" fill="#4d9fff"/>
+    <g class="cross"><rect x="103" y="66" width="59" height="126" rx="18" fill="url(#brand)"/><rect x="69" y="100" width="128" height="59" rx="18" fill="url(#brand)"/></g>
+    <path class="beat" d="M68 131h35l10-16 14 39 14-51 16 29h41"/>
+    <circle class="ring" cx="174" cy="172" r="15" fill="none" stroke="url(#brand)" stroke-width="8"/><circle class="ring" cx="174" cy="172" r="4.5" fill="#4d9fff"/>
+    <path class="leaf" d="M182 144c6-30 24-49 48-58 1 28-10 50-41 63 12-14 21-29 27-45-10 17-22 30-34 40Z" fill="url(#leaf)"/>
+    <path class="leaf two" d="M174 187c15-20 34-29 56-25-9 21-26 31-50 28 12-7 23-12 35-15-14 1-27 5-41 12Z" fill="url(#leaf)"/>
+    <path class="draw scope" style="animation-delay:.54s" d="M174 191c18 20 39 20 58 8"/>
+  </g>
+  <text class="word sehat" x="77" y="470" fill="url(#blueWord)" font-family="Manrope,Inter,Arial,sans-serif" font-size="101" font-weight="700" letter-spacing="-5">sehat</text>
+  <text class="word line" x="381" y="470" fill="url(#greenWord)" font-family="Manrope,Inter,Arial,sans-serif" font-size="101" font-weight="650" letter-spacing="-5">line</text>
+  <path class="rule" d="M118 516h204" stroke="#69cef4" stroke-width="3"/><path class="rule" d="M378 516h204" stroke="#6de8bc" stroke-width="3"/>
+  <path class="heart" d="M355 526c-15-10-21-16-21-23 0-6 5-10 11-10 4 0 8 2 10 6 2-4 6-6 10-6 6 0 11 4 11 10 0 7-6 13-21 23Z" fill="url(#brand)"/>
+  <text class="tagline" x="350" y="572" text-anchor="middle" fill="#f7fcff" font-family="Inter,Arial,sans-serif" font-size="31" font-weight="750" letter-spacing="4">Your Health, Our Priority</text>
+</svg>

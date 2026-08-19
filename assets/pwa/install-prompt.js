@@ -4,7 +4,7 @@
   const config = {
     id: document.body.dataset.pwaId || "sehatline",
     name: document.body.dataset.pwaName || "SehatLine",
-    icon: document.body.dataset.pwaIcon || "/assets/logos/sehatline-mark-frame.png"
+    icon: document.body.dataset.pwaIcon || "/assets/logos/sehatline-care-mark-animated.svg?v=2"
   };
   const standaloneQuery = window.matchMedia("(display-mode: standalone)");
   const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);

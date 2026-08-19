@@ -580,10 +580,7 @@ function renderHeader() {
 
 function animatedBrandMark(extraClass = "") {
   return `<span class="animated-brand-mark ${extraClass}" aria-hidden="true">
-    <img src="/assets/logos/sehatline-mark-frame.png" alt="">
-    <video autoplay muted loop playsinline preload="metadata">
-      <source src="/assets/logos/sehatline-animated.mp4" type="video/mp4">
-    </video>
+    <img src="/assets/logos/sehatline-care-mark-animated.svg?v=2" alt="">
   </span>`;
 }
 

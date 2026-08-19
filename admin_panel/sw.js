@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "sehatline-admin-";
-const CACHE = `${CACHE_PREFIX}v18`;
+const CACHE = `${CACHE_PREFIX}v26`;
 const SHELL = [
   "./",
   "./index.html",
@@ -15,7 +15,10 @@ const SHELL = [
   "/assets/footer/site-footer.css",
   "/assets/footer/site-footer.js",
   "/assets/logos/sehatline-animated.mp4",
-  "/assets/logos/sehatline-mark-frame.png"
+  "/assets/logos/sehatline-mark-frame.png",
+  "/assets/logos/sehatline-care-logo.jpeg",
+  "/assets/logos/sehatline-care-mark-animated.svg?v=2",
+  "/assets/logos/sehatline-care-lockup-animated.svg?v=2"
 ];
 
 self.addEventListener("install", event => {

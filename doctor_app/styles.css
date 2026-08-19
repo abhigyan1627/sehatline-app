@@ -473,9 +473,11 @@ strong {
   display: grid;
   place-items: center;
   color: #fff;
-  background: #c9eefd;
-  box-shadow: 0 9px 20px rgba(0, 197, 142, .22);
+  background: linear-gradient(145deg,#0d2e42,#071d31);
+  border: 1px solid rgba(70,218,239,.22);
+  box-shadow: 0 9px 20px rgba(0, 197, 142, .25), inset 0 0 16px rgba(62,217,225,.05);
   isolation: isolate;
+  animation: sehatline-logo-breathe 4.8s ease-in-out infinite;
 }
 
 .brand-mark svg {
@@ -493,20 +495,7 @@ strong {
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-}
-
-.animated-brand-mark > video {
-  position: absolute;
-  z-index: 1;
-  left: 50%;
-  top: 50%;
-  width: 490%;
-  height: 490%;
-  max-width: none;
-  pointer-events: none;
-  object-fit: cover;
-  transform: translate(-50.8%, -40.9%);
+  object-fit: contain;
 }
 
 .brand > span:last-child {

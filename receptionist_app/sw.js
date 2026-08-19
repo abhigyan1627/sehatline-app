@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "sehatline-receptionist-";
-const CACHE = `${CACHE_PREFIX}v7`;
+const CACHE = `${CACHE_PREFIX}v15`;
 const SHELL = [
   "./",
   "./index.html",
@@ -17,6 +17,9 @@ const SHELL = [
   "/assets/footer/site-footer.css",
   "/assets/footer/site-footer.js",
   "/assets/logos/sehatline-mark-frame.png",
+  "/assets/logos/sehatline-care-logo.jpeg",
+  "/assets/logos/sehatline-care-mark-animated.svg?v=2",
+  "/assets/logos/sehatline-care-lockup-animated.svg?v=2",
   "/assets/brand-motion/hospital-care-background-v1.png"
 ];
 
