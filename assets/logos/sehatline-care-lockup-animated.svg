@@ -4,8 +4,8 @@
   <defs>
     <linearGradient id="brand" x1="42" y1="44" x2="218" y2="210" gradientUnits="userSpaceOnUse"><stop stop-color="#4d9fff"/><stop offset=".5" stop-color="#38d1e6"/><stop offset="1" stop-color="#5af0aa"/></linearGradient>
     <linearGradient id="leaf" x1="174" y1="112" x2="226" y2="202" gradientUnits="userSpaceOnUse"><stop stop-color="#6bf3b6"/><stop offset="1" stop-color="#20c983"/></linearGradient>
-    <linearGradient id="blueWord" x1="70" y1="0" x2="365" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#5fa8ff"/><stop offset="1" stop-color="#44d4f2"/></linearGradient>
-    <linearGradient id="greenWord" x1="374" y1="0" x2="625" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#5ce7c6"/><stop offset="1" stop-color="#70f3b5"/></linearGradient>
+    <linearGradient id="blueWord" x1="115" y1="0" x2="410" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#5fa8ff"/><stop offset="1" stop-color="#44d4f2"/></linearGradient>
+    <linearGradient id="greenWord" x1="393" y1="0" x2="645" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#5ce7c6"/><stop offset="1" stop-color="#70f3b5"/></linearGradient>
   </defs>
   <style>
     .draw,.beat,.rule{fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:700;stroke-dashoffset:700;animation:draw .25s cubic-bezier(.2,.8,.3,1) forwards}.arc{stroke:url(#brand);stroke-width:9}.scope{stroke:url(#brand);stroke-width:8;animation-delay:.1s}
@@ -26,8 +26,8 @@
     <path class="leaf two" d="M174 187c15-20 34-29 56-25-9 21-26 31-50 28 12-7 23-12 35-15-14 1-27 5-41 12Z" fill="url(#leaf)"/>
     <path class="draw scope" style="animation-delay:.54s" d="M174 191c18 20 39 20 58 8"/>
   </g>
-  <text class="word sehat" x="77" y="470" fill="url(#blueWord)" font-family="Manrope,Inter,Arial,sans-serif" font-size="101" font-weight="700" letter-spacing="-5">sehat</text>
-  <text class="word line" x="381" y="470" fill="url(#greenWord)" font-family="Manrope,Inter,Arial,sans-serif" font-size="101" font-weight="650" letter-spacing="-5">line</text>
+  <text class="word sehat" x="122" y="470" fill="url(#blueWord)" font-family="Manrope,Inter,Arial,sans-serif" font-size="101" font-weight="700" letter-spacing="-5">sehat</text>
+  <text class="word line" x="393" y="470" fill="url(#greenWord)" font-family="Manrope,Inter,Arial,sans-serif" font-size="101" font-weight="650" letter-spacing="-5">line</text>
   <path class="rule" d="M118 516h204" stroke="#69cef4" stroke-width="3"/><path class="rule" d="M378 516h204" stroke="#6de8bc" stroke-width="3"/>
   <path class="heart" d="M355 526c-15-10-21-16-21-23 0-6 5-10 11-10 4 0 8 2 10 6 2-4 6-6 10-6 6 0 11 4 11 10 0 7-6 13-21 23Z" fill="url(#brand)"/>
   <text class="tagline" x="350" y="572" text-anchor="middle" fill="#f7fcff" font-family="Inter,Arial,sans-serif" font-size="31" font-weight="750" letter-spacing="4">Your Health, Our Priority</text>

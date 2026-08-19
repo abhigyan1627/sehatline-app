@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "sehatline-patient-";
-const CACHE = `${CACHE_PREFIX}v33`;
+const CACHE = `${CACHE_PREFIX}v36`;
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -23,8 +23,8 @@ const APP_SHELL = [
   "/assets/logos/sehatline-logo-poster.png",
   "/assets/logos/sehatline-mark-frame.png",
   "/assets/logos/sehatline-care-logo.jpeg",
-  "/assets/logos/sehatline-care-mark-animated.svg?v=2",
-  "/assets/logos/sehatline-care-lockup-animated.svg?v=2",
+  "/assets/logos/sehatline-care-mark-animated.svg?v=3",
+  "/assets/logos/sehatline-care-lockup-animated.svg?v=4",
   "/assets/brand-motion/auth-care-tree-doctor.png"
 ];
 

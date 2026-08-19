@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#07111f">
-  <link rel="icon" type="image/svg+xml" href="/assets/logos/sehatline-care-mark-animated.svg?v=2">
-  <link rel="shortcut icon" href="/assets/logos/sehatline-care-mark-animated.svg?v=2">
+  <link rel="icon" type="image/svg+xml" href="/assets/logos/sehatline-care-mark-animated.svg?v=3">
+  <link rel="shortcut icon" href="/assets/logos/sehatline-care-mark-animated.svg?v=3">
   <meta
   name="description"
   content="Find doctors, book appointments and manage live clinic queues with SehatLine. Simple healthcare access for patients, doctors and clinics."
@@ -62,7 +62,7 @@
 <body>
   <main class="shell">
     <nav class="nav">
-      <div class="brand"><span class="brand-media" aria-hidden="true"><img src="/assets/logos/sehatline-care-mark-animated.svg?v=2" alt=""></span><span><strong>SehatLine</strong><small>SMARTER CARE. BETTER LIFE.</small></span></div>
+      <div class="brand"><span class="brand-media" aria-hidden="true"><img src="/assets/logos/sehatline-care-mark-animated.svg?v=3" alt=""></span><span><strong>SehatLine</strong><small>SMARTER CARE. BETTER LIFE.</small></span></div>
       <span class="api" id="apiStatus"><i></i><span>Checking care network…</span></span>
     </nav>
     <section class="hero">
@@ -74,7 +74,7 @@
       </div>
       <div class="orb-wrap" aria-hidden="true">
         <span class="ring r1"></span><span class="ring r2"></span>
-        <div class="orb"><img src="/assets/logos/sehatline-care-mark-animated.svg?v=2" alt=""></div>
+        <div class="orb"><img src="/assets/logos/sehatline-care-mark-animated.svg?v=3" alt=""></div>
         <span class="dot d1">✚</span><span class="dot d2">⌬</span><span class="dot d3">✦</span>
       </div>
     </section>
@@ -87,7 +87,7 @@
     </section>
   </main>
   <script src="/assets/motion/sehatline-motion.js?v=3" defer></script>
-  <script src="/assets/footer/site-footer.js?v=11" defer></script>
+  <script src="/assets/footer/site-footer.js?v=12" defer></script>
   <script>
     fetch("/api/health").then(r=>{if(!r.ok)throw new Error()}).then(()=>{apiStatus.innerHTML="<i></i><span>Care network operational</span>"}).catch(()=>{apiStatus.innerHTML="<i style='background:#ef476f'></i><span>Care network offline</span>"});
     window.addEventListener("DOMContentLoaded",()=>window.SehatMotion?.enhance(document,{selectors:[".portal"],limit:8}));

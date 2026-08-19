@@ -45,7 +45,7 @@
       <div class="sehatline-footer-careline"><span>Need help?</span><strong>Find quick answers or raise a support ticket.</strong><button type="button" data-open-sehatline-help>Open Help Center</button></div>
       <div class="sehatline-footer-inner">
         <section class="sehatline-footer-about" aria-labelledby="sehatline-footer-title">
-          <a class="sehatline-footer-brand" href="/" aria-label="SehatLine home"><span class="sehatline-footer-mark" aria-hidden="true"><img src="/assets/logos/sehatline-care-mark-animated.svg?v=2" alt=""></span><span><strong id="sehatline-footer-title">SehatLine</strong><small>Smarter care. Better life.</small></span></a>
+          <a class="sehatline-footer-brand" href="/" aria-label="SehatLine home"><span class="sehatline-footer-mark" aria-hidden="true"><img src="/assets/logos/sehatline-care-mark-animated.svg?v=3" alt=""></span><span><strong id="sehatline-footer-title">SehatLine</strong><small>Smarter care. Better life.</small></span></a>
           <h2>About us</h2>
           <p>SehatLine Healthcare connects patients with admin-verified doctors through transparent discovery, appointments and live clinic operations. We are building accessible digital healthcare services for every family.</p>
           <div class="sehatline-footer-trust"><span>Verified doctors</span><span>Secure access</span><span>Patient-first care</span></div>

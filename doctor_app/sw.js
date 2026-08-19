@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "sehatline-doctor-";
-const CACHE_NAME = `${CACHE_PREFIX}v26`;
+const CACHE_NAME = `${CACHE_PREFIX}v29`;
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -23,8 +23,8 @@ const APP_SHELL = [
   "/assets/logos/sehatline-logo-poster.png",
   "/assets/logos/sehatline-mark-frame.png",
   "/assets/logos/sehatline-care-logo.jpeg",
-  "/assets/logos/sehatline-care-mark-animated.svg?v=2",
-  "/assets/logos/sehatline-care-lockup-animated.svg?v=2"
+  "/assets/logos/sehatline-care-mark-animated.svg?v=3",
+  "/assets/logos/sehatline-care-lockup-animated.svg?v=4"
 ];
 
 self.addEventListener("install", event => {
