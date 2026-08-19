@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "sehatline-admin-";
-const CACHE = `${CACHE_PREFIX}v14`;
+const CACHE = `${CACHE_PREFIX}v18`;
 const SHELL = [
   "./",
   "./index.html",

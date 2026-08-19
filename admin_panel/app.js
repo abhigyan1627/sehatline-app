@@ -45,6 +45,9 @@ const state = {
   bookings: fallback.bookings,
   users: fallback.users,
   notifications: fallback.notifications,
+  supportTickets: [],
+  supportTicketSearch: "",
+  supportTicketStatus: "all",
   publicFacilities: [], healthSupportLocations: [], governmentSchemes: [], insurancePlans: [], networkTab: "publicFacilities",
   networkFilters: { search: "", type: "all", state: "all", district: "all", status: "all" },
   networkFormCollection: "publicFacilities",
@@ -125,6 +128,7 @@ async function loadData() {
     ,api("/admin/health-support-locations?limit=50")
     ,api("/admin/government-schemes?limit=50")
     ,api("/admin/insurance-plans?limit=50")
+    ,api("/admin/support-tickets")
   ]);
   if (requests[0].status === "fulfilled") state.overview = { ...state.overview, ...requests[0].value };
   if (requests[1].status === "fulfilled") state.doctors = unwrapList(requests[1].value, ["doctors", "items"]);
@@ -133,6 +137,7 @@ async function loadData() {
   if (requests[4].status === "fulfilled" && unwrapList(requests[4].value, ["users", "items"]).length) state.users = unwrapList(requests[4].value, ["users", "items"]);
   if (requests[5].status === "fulfilled") state.notifications = unwrapList(requests[5].value, ["notifications", "items"]);
   ["publicFacilities","healthSupportLocations","governmentSchemes","insurancePlans"].forEach((key,index) => { if (requests[index + 6]?.status === "fulfilled") state[key] = unwrapList(requests[index + 6].value,["items"]); });
+  if (requests[10]?.status === "fulfilled") state.supportTickets = unwrapList(requests[10].value,["items"]);
   const expired = requests.find(result => result.status === "rejected" && ["AUTH_REQUIRED", "SESSION_EXPIRED"].includes(result.reason?.code));
   if (expired) {
     showLogin("Your session expired. Please log in again.");
@@ -151,6 +156,7 @@ function renderAll() {
   renderUsers();
   renderAnalytics();
   renderNotifications();
+  renderSupportTickets();
   renderHealthcareNetwork();
   const activeView = $(".view.active");
   window.SehatMotion?.enhance(activeView);
@@ -346,6 +352,20 @@ function renderNotifications() {
     </article>`).join("") : `<div class="empty-state">No notifications sent yet.</div>`;
 }
 
+function renderSupportTickets() {
+  const root = $("#supportTicketList"); if (!root) return;
+  const query = state.supportTicketSearch.trim().toLowerCase(), status = state.supportTicketStatus;
+  const tickets = state.supportTickets.filter(ticket => (status === "all" || ticket.status === status) && (!query || `${ticket.reference} ${ticket.name} ${ticket.email} ${ticket.phone} ${ticket.subject} ${ticket.message}`.toLowerCase().includes(query)));
+  const count = value => state.supportTickets.filter(ticket => ticket.status === value).length;
+  $("#supportOpenCount").textContent = count("open"); $("#supportProgressCount").textContent = count("in_progress"); $("#supportResolvedCount").textContent = count("resolved") + count("closed"); $("#supportUrgentCount").textContent = state.supportTickets.filter(ticket => ["high","urgent"].includes(ticket.priority)).length;
+  $("#supportTicketBadge").textContent = count("open"); $("#supportTicketBadge").hidden = count("open") === 0;
+  const statusLabel = value => ({ open:"Open", in_progress:"In progress", waiting_user:"Waiting for user", resolved:"Resolved", closed:"Closed" })[value] || value;
+  root.innerHTML = tickets.length ? tickets.map(ticket => { const phone = String(ticket.phone || "").replace(/\D/g,""); const mail = ticket.email ? `<a href="mailto:${encodeURIComponent(ticket.email)}?subject=${encodeURIComponent(`[${ticket.reference}] ${ticket.subject}`)}">Email user</a>` : ""; const whatsapp = phone ? `<a target="_blank" rel="noopener" href="https://wa.me/${phone}?text=${encodeURIComponent(`Hello ${ticket.name}, this is SehatLine Support regarding ticket ${ticket.reference}.`)}">WhatsApp</a>` : ""; return `<article class="support-ticket-card" data-ticket-id="${escapeHtml(ticket.id)}"><div class="support-ticket-head"><div><span class="support-reference">${escapeHtml(ticket.reference)}</span><h3>${escapeHtml(ticket.subject)}</h3><p>${escapeHtml(ticket.name)} · ${escapeHtml(ticket.role)} · ${displayDate(ticket.createdAt)}</p></div><span class="support-status ${escapeHtml(ticket.status)}">${statusLabel(ticket.status)}</span></div><div class="support-ticket-body"><div><b>${escapeHtml(ticket.category)}</b><p>${escapeHtml(ticket.message)}</p>${ticket.sourceUrl ? `<small>Source: ${escapeHtml(ticket.sourceUrl)}</small>` : ""}</div><aside><strong>Contact requester</strong><span>${escapeHtml(ticket.email || "No email")}</span><span>${escapeHtml(ticket.phone || "No mobile")}</span><div class="support-contact-actions">${mail}${whatsapp}</div></aside></div><div class="support-ticket-controls"><label>Status<select data-ticket-status><option value="open" ${ticket.status === "open" ? "selected" : ""}>Open</option><option value="in_progress" ${ticket.status === "in_progress" ? "selected" : ""}>In progress</option><option value="waiting_user" ${ticket.status === "waiting_user" ? "selected" : ""}>Waiting for user</option><option value="resolved" ${ticket.status === "resolved" ? "selected" : ""}>Resolved</option><option value="closed" ${ticket.status === "closed" ? "selected" : ""}>Closed</option></select></label><label>Priority<select data-ticket-priority><option value="low" ${ticket.priority === "low" ? "selected" : ""}>Low</option><option value="normal" ${ticket.priority === "normal" ? "selected" : ""}>Normal</option><option value="high" ${ticket.priority === "high" ? "selected" : ""}>High</option><option value="urgent" ${ticket.priority === "urgent" ? "selected" : ""}>Urgent</option></select></label><label class="note">Admin note<textarea data-ticket-note rows="2" placeholder="Internal follow-up or resolution note">${escapeHtml(ticket.adminNote || "")}</textarea></label><button class="primary-button" data-save-ticket="${escapeHtml(ticket.id)}">Save update</button></div></article>`; }).join("") : `<div class="empty-admin-state"><strong>No support tickets found</strong><p>New tickets raised from the Help Center will appear here.</p></div>`;
+}
+
+async function loadSupportTickets() { try { const payload = await api("/admin/support-tickets"); state.supportTickets = unwrapList(payload,["items"]); renderSupportTickets(); } catch(error) { showToast(`Could not load support tickets: ${error.message}`); } }
+async function saveSupportTicket(id, card) { try { const updated = await api(`/admin/support-tickets/${encodeURIComponent(id)}`,{ method:"PATCH", body:JSON.stringify({ status:card.querySelector("[data-ticket-status]").value, priority:card.querySelector("[data-ticket-priority]").value, adminNote:card.querySelector("[data-ticket-note]").value }) }); const index=state.supportTickets.findIndex(ticket=>ticket.id===updated.id); if(index>=0) state.supportTickets[index]=updated; renderSupportTickets(); showToast(`Ticket ${updated.reference} updated`); } catch(error) { showToast(`Ticket update failed: ${error.message}`); } }
+
 const networkConfig = {
   publicFacilities: { title: "Public Facilities", add: "+ Add Facility", endpoint: "public-facilities", typeKey: "facilityType", types: [["GOVT_HOSPITAL","Government Hospital"],["PHC","PHC"],["CHC","CHC"],["SADAR_HOSPITAL","Sadar Hospital"],["MEDICAL_COLLEGE","Medical College"],["OTHER","Other"]], name: item => item.name, columns: ["Facility","Type","Location","Emergency","Verification","Status","Actions"] },
   healthSupportLocations: { title: "Jan Aushadhi", add: "+ Add Jan Aushadhi Center", endpoint: "health-support/locations", typeKey: "type", types: [["JAN_AUSHADHI","Jan Aushadhi"],["PHARMACY","Pharmacy"],["OTHER","Other"]], name: item => item.name, columns: ["Center","Location","Contact","Verification","Status","Actions"] },
@@ -474,6 +494,7 @@ const viewMeta = {
   users: ["Community", "User management"],
   analytics: ["City intelligence", "Performance analytics"],
   notifications: ["Patient engagement", "Notification center"],
+  "support-tickets": ["Complaints & support", "Support ticket inbox"],
   "healthcare-network": ["Healthcare Network", "Public care & health support"],
   "admin-management": ["Security controls", "Admin Management"],
   "audit-logs": ["Security history", "Audit Logs"],
@@ -488,6 +509,7 @@ const viewPermissions = {
   users: ["patient_management"],
   analytics: ["analytics"],
   notifications: ["complaints_support"],
+  "support-tickets": ["complaints_support"],
   "healthcare-network": ["dashboard"],
   "admin-management": ["admin_management"],
   "audit-logs": ["audit_logs"]
@@ -517,6 +539,7 @@ function switchView(view) {
   window.SehatMotion?.animateNumbers(activeView, "[data-metric], .booking-summary strong, .insight-card strong, .big-stat strong");
   if (safeView === "admin-management") loadAdmins();
   if (safeView === "audit-logs") loadAuditLogs();
+  if (safeView === "support-tickets") loadSupportTickets();
 }
 
 const valueForInput = value => escapeHtml(Array.isArray(value) ? value.join(", ") : value ?? "");
@@ -1327,6 +1350,9 @@ function bindEvents() {
   $("#quickAddButton").addEventListener("click", () => openModal("doctor"));
   $("#createAdminButton").addEventListener("click", () => openModal("admin"));
   $("#refreshAuditLogs").addEventListener("click", loadAuditLogs);
+  $("#refreshSupportTickets").addEventListener("click", loadSupportTickets);
+  $("#supportTicketSearch").addEventListener("input", event => { state.supportTicketSearch = event.target.value; renderSupportTickets(); });
+  $("#supportTicketStatus").addEventListener("change", event => { state.supportTicketStatus = event.target.value; renderSupportTickets(); });
   $("#adminSearch").addEventListener("input", event => { state.adminSearch = event.target.value; renderAdmins(); });
   $("#adminRoleFilter").addEventListener("change", event => { state.adminRoleFilter = event.target.value; renderAdmins(); });
   $("#adminStatusFilter").addEventListener("change", event => { state.adminStatusFilter = event.target.value; renderAdmins(); });
@@ -1357,6 +1383,7 @@ function bindEvents() {
   }));
 document.addEventListener("click", event => {
   const networkOpen = event.target.closest("[data-network-open]"); if (networkOpen) { state.networkTab = networkOpen.dataset.networkOpen; state.networkFilters = { search:"",type:"all",state:"all",district:"all",status:"all" }; $$('[data-network-open]').forEach(node => node.classList.toggle('active', node === networkOpen)); $$('[data-network-tab]').forEach(node => node.classList.toggle('active', node.dataset.networkTab === state.networkTab)); renderHealthcareNetwork(); return; }
+  const saveTicket = event.target.closest("[data-save-ticket]"); if (saveTicket) { saveSupportTicket(saveTicket.dataset.saveTicket,saveTicket.closest(".support-ticket-card")); return; }
   const networkTab = event.target.closest("[data-network-tab]"); if (networkTab) { state.networkTab = networkTab.dataset.networkTab; state.networkFilters = { search:"",type:"all",state:"all",district:"all",status:"all" }; $$('[data-network-tab]').forEach(node => node.classList.toggle('active', node === networkTab)); renderHealthcareNetwork(); return; }
   if (event.target.closest("[data-network-add]")) { openNetworkModal(); return; }
   const networkToggle = event.target.closest("[data-network-toggle]"); if (networkToggle) { toggleNetworkRecord(networkToggle.dataset.networkToggle).catch(error => showToast(error.message)); return; }

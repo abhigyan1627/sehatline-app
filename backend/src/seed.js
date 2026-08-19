@@ -13,6 +13,7 @@ export function createSeedDatabase() {
     healthSupportLocations: [],
     governmentSchemes: [],
     insurancePlans: [],
+    supportTickets: [],
     doctors: [
       {
         id: "d1",

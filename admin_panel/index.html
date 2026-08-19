@@ -12,8 +12,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/motion/sehatline-motion.css?v=3">
-  <link rel="stylesheet" href="./styles.css?v=8">
-  <link rel="stylesheet" href="/assets/footer/site-footer.css?v=3">
+  <link rel="stylesheet" href="./styles.css?v=9">
+  <link rel="stylesheet" href="/assets/footer/site-footer.css?v=7">
 </head>
 <body>
   <template id="legacyAuthTemplate">
@@ -126,6 +126,9 @@
         </button>
         <button class="nav-item" data-view="notifications">
           <span class="nav-icon">◇</span><span>Notifications</span>
+        </button>
+        <button class="nav-item" data-view="support-tickets">
+          <span class="nav-icon">?</span><span>Support Tickets</span><em id="supportTicketBadge">0</em>
         </button>
         <p class="nav-label" data-super-admin-only>Security</p>
         <button class="nav-item" data-view="admin-management" data-permission="admin_management">
@@ -400,6 +403,13 @@
         </div>
       </section>
 
+      <section class="view" id="view-support-tickets">
+        <div class="section-heading"><div><p class="eyebrow">Complaints &amp; support</p><h2>Support ticket inbox</h2><p>Review user issues, contact the requester and record resolution progress.</p></div><button class="ghost-button" id="refreshSupportTickets">↻ Refresh</button></div>
+        <div class="support-ticket-summary"><article><strong id="supportOpenCount">0</strong><small>Open</small></article><article><strong id="supportProgressCount">0</strong><small>In progress</small></article><article><strong id="supportUrgentCount">0</strong><small>High / urgent</small></article><article><strong id="supportResolvedCount">0</strong><small>Resolved</small></article></div>
+        <div class="toolbar"><label class="table-search"><span>⌕</span><input id="supportTicketSearch" type="search" placeholder="Search reference, name or issue"></label><select id="supportTicketStatus"><option value="all">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting_user">Waiting for user</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></div>
+        <div class="support-ticket-list" id="supportTicketList"></div>
+      </section>
+
       <section class="view" id="view-admin-management">
         <div class="section-heading">
           <div><p class="eyebrow">Super Admin controls</p><h2>Admin Management</h2><p>Create authorized accounts, assign permissions and manage access securely.</p></div>
@@ -449,7 +459,7 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="/assets/motion/sehatline-motion.js?v=3"></script>
-  <script src="/assets/footer/site-footer.js?v=3" defer></script>
-  <script type="module" src="./app.js?v=9"></script>
+  <script src="/assets/footer/site-footer.js?v=7" defer></script>
+  <script type="module" src="./app.js?v=10"></script>
 </body>
 </html>

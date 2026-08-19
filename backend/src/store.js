@@ -154,7 +154,7 @@ export class MongoStore {
 export { defaultDataFile };
 
 function ensureEcosystemCollections(data) {
-  for (const key of ["publicFacilities", "healthSupportLocations", "governmentSchemes", "insurancePlans"]) {
+  for (const key of ["publicFacilities", "healthSupportLocations", "governmentSchemes", "insurancePlans", "supportTickets"]) {
     if (!Array.isArray(data[key])) data[key] = [];
   }
   for (const patient of data.users || []) {

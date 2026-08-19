@@ -1435,6 +1435,39 @@ async function routeApi(request, response, url, store, runtime = {}) {
     if (location.countryCode && location.countryCode !== "IN") { sendError(response, 422, "Your current location is outside India"); return true; }
     sendJson(response, 200, location); return true;
   }
+  if (pathname === "/api/support/tickets" && method === "POST") {
+    const input = await readJson(request);
+    const name = firstText(input.name).slice(0,100), email = firstText(input.email).toLowerCase().slice(0,160), phone = phoneDigits(input.phone), subject = firstText(input.subject).slice(0,160), message = firstText(input.message).slice(0,3000);
+    const role = ["patient","doctor","receptionist","partner","other"].includes(input.role) ? input.role : "patient";
+    const category = ["booking","payment","login","queue","doctor","lab","report","location","account","technical","feedback","other"].includes(input.category) ? input.category : "other";
+    if (name.length < 2) { sendError(response,422,"Please enter your name"); return true; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && phone.length !== 10) { sendError(response,422,"Enter a valid email or 10-digit mobile number"); return true; }
+    if (subject.length < 4 || message.length < 10) { sendError(response,422,"Add a clear subject and at least 10 characters of detail"); return true; }
+    const now = new Date(), reference = `SL-SUP-${now.toISOString().slice(0,10).replaceAll("-","")}-${randomUUID().slice(0,6).toUpperCase()}`;
+    const ticket = { id:slugId("support-ticket"), reference, name, email, phone:phone ? `+91 ${phone.slice(0,5)} ${phone.slice(5)}` : "", role, category, subject, message, sourceUrl:firstText(input.sourceUrl).slice(0,300), status:"open", priority:"normal", adminNote:"", assignedTo:"", createdAt:now.toISOString(), updatedAt:now.toISOString() };
+    await store.mutate(data => { data.supportTickets ||= []; data.supportTickets.unshift(ticket); });
+    sendJson(response,201,{ reference:ticket.reference, status:ticket.status, createdAt:ticket.createdAt }); return true;
+  }
+  const adminSupportMatch = pathname.match(/^\/api\/admin\/support-tickets(?:\/([^/]+))?$/);
+  if (adminSupportMatch) {
+    const auth = await adminAuth.authenticate(request);
+    adminAuth.requirePermission(auth,"complaints_support");
+    const id = adminSupportMatch[1] ? decodeURIComponent(adminSupportMatch[1]) : "";
+    if (method === "GET" && !id) {
+      let tickets = [...(database.supportTickets || [])];
+      const status = String(searchParams.get("status") || "").toLowerCase(); if (status && status !== "all") tickets = tickets.filter(ticket => ticket.status === status);
+      sendJson(response,200,{ items:tickets, total:tickets.length }); return true;
+    }
+    const existing = (database.supportTickets || []).find(ticket => ticket.id === id || ticket.reference === id);
+    if (!existing) { sendError(response,404,"Support ticket not found"); return true; }
+    if (method === "GET") { sendJson(response,200,existing); return true; }
+    if (method === "PATCH") {
+      adminAuth.verifyCsrf(request,auth); const input = await readJson(request);
+      const allowedStatus = ["open","in_progress","waiting_user","resolved","closed"];
+      const updated = { status:allowedStatus.includes(input.status) ? input.status : existing.status, priority:["low","normal","high","urgent"].includes(input.priority) ? input.priority : existing.priority, adminNote:Object.hasOwn(input,"adminNote") ? firstText(input.adminNote).slice(0,2000) : existing.adminNote, assignedTo:auth.admin.fullName || auth.admin.id, updatedAt:new Date().toISOString(), ...(input.status === "resolved" ? { resolvedAt:new Date().toISOString() } : {}) };
+      await store.mutate(data => Object.assign(data.supportTickets.find(ticket => ticket.id === existing.id),updated)); sendJson(response,200,{...existing,...updated}); return true;
+    }
+  }
   const adminDataRoutes = new Map([
     ["/api/admin/doctors", ["doctor_management", "doctor_verification"]],
     ["/api/admin/labs", ["document_approval"]],

@@ -3012,11 +3012,7 @@ document.addEventListener("click", (event) => {
       { icon: "heart", title: "Health tips & offers", copy: "Off" }
     ]),
     account: openAuth,
-    support: () => simpleInfoModal("Help & support", "We’re here to help with bookings and your SehatLine experience.", [
-      { icon: "help", title: "Frequently asked questions", copy: "Quick answers to common questions" },
-      { icon: "phone", title: "Chat with support", copy: "Typical reply in under 10 minutes" },
-      { icon: "alert", title: "Report a problem", copy: "Tell us what went wrong" }
-    ]),
+    support: () => document.querySelector("[data-open-sehatline-help]")?.click(),
     logout: () => {
       state.authToken = "";
       localStorage.removeItem("sehatline-auth-token");

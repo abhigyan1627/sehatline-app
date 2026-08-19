@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "sehatline-receptionist-";
-const CACHE = `${CACHE_PREFIX}v3`;
+const CACHE = `${CACHE_PREFIX}v7`;
 const SHELL = [
   "./",
   "./index.html",

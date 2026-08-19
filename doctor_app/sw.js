@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "sehatline-doctor-";
-const CACHE_NAME = `${CACHE_PREFIX}v14`;
+const CACHE_NAME = `${CACHE_PREFIX}v18`;
 const APP_SHELL = [
   "./",
   "./index.html",
