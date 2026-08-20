@@ -1657,6 +1657,78 @@
     showToast("Patient list exported", "The CSV download is ready.");
   }
 
+  let googleIdentityReadyPromise = null;
+  let googleIdentityClientId = "";
+
+  function loadGoogleIdentityScript() {
+    if (window.google?.accounts?.id) return Promise.resolve();
+    if (googleIdentityReadyPromise) return googleIdentityReadyPromise;
+    googleIdentityReadyPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+      const script = existing || document.createElement("script");
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.defer = true;
+      script.addEventListener("load", resolve, { once: true });
+      script.addEventListener("error", () => reject(new Error("Google sign-in could not be loaded")), { once: true });
+      if (!existing) document.head.append(script);
+    }).catch(error => {
+      googleIdentityReadyPromise = null;
+      throw error;
+    });
+    return googleIdentityReadyPromise;
+  }
+
+  async function handleDoctorGoogleCredential(response) {
+    const errorNode = $("#google-auth-error");
+    if (errorNode) errorNode.textContent = "";
+    if (!response?.credential) return;
+    try {
+      const result = await apiRequest("/api/auth/google/doctor", {
+        method: "POST",
+        body: JSON.stringify({ credential: response.credential })
+      });
+      await enterApp(result.data || {});
+    } catch (error) {
+      if (errorNode) errorNode.textContent = error.message;
+      showToast("Google sign-in failed", error.message, "error");
+    }
+  }
+
+  async function renderDoctorGoogleButton() {
+    const container = $("#doctor-google-button");
+    if (!container) return;
+    try {
+      const result = await apiRequest("/api/auth/google/config", {}, { enabled: false });
+      const config = result.data;
+      if (!config?.enabled || !config.clientId) return;
+      await loadGoogleIdentityScript();
+      if (!document.contains(container)) return;
+      if (googleIdentityClientId !== config.clientId) {
+        window.google.accounts.id.initialize({
+          client_id: config.clientId,
+          callback: handleDoctorGoogleCredential,
+          auto_select: false,
+          cancel_on_tap_outside: true
+        });
+        googleIdentityClientId = config.clientId;
+      }
+      container.replaceChildren();
+      window.google.accounts.id.renderButton(container, {
+        type: "standard",
+        theme: "outline",
+        size: "large",
+        text: "continue_with",
+        shape: "rectangular",
+        logo_alignment: "left",
+        width: Math.max(240, Math.min(360, Math.round(container.getBoundingClientRect().width || 320)))
+      });
+      container.dataset.ready = "true";
+    } catch {
+      // Keep the simple fallback visible until Google Identity is configured.
+    }
+  }
+
   function bindAuth() {
     if (!appConfig.allowGuestAccess) {
       $("#demo-login")?.remove();
@@ -1666,6 +1738,10 @@
 
     $("#open-doctor-plan")?.addEventListener("click", doctorLaunchPlanModal);
     $("#open-doctor-application")?.addEventListener("click", openDoctorApplicationOrResume);
+    $("#doctor-google-fallback")?.addEventListener("click", () => {
+      showToast("Google sign-in is being connected", "Please use your approved mobile number for now.", "error");
+    });
+    renderDoctorGoogleButton();
 
     $("#phone").addEventListener("input", event => {
       const digits = event.target.value.replace(/\D/g, "").slice(0, 10);

@@ -2,7 +2,7 @@ import http from "node:http";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, createPublicKey, randomBytes, randomUUID, timingSafeEqual, verify as verifySignature } from "node:crypto";
 import { JsonStore, MongoStore } from "./store.js";
 import { connectDatabase } from "./config/database.js";
 import { AdminAuthService, adminErrorPayload } from "./admin-auth.js";
@@ -52,6 +52,8 @@ const razorpayKeyId = String(process.env.RAZORPAY_KEY_ID || "").trim();
 const razorpayKeySecret = String(process.env.RAZORPAY_KEY_SECRET || "").trim();
 const razorpayWebhookSecret = String(process.env.RAZORPAY_WEBHOOK_SECRET || "").trim();
 const googleMapsServerApiKey = String(process.env.GOOGLE_MAPS_SERVER_API_KEY || "").trim();
+const googleIdentityClientId = String(process.env.GOOGLE_IDENTITY_CLIENT_ID || "").trim();
+let googleIdentityKeys = { expiresAt: 0, keys: [] };
 const PATIENT_PAYMENT_RESERVATION_MS = 15 * 60 * 1000;
 const DOCTOR_LAUNCH_PLAN = Object.freeze({
   id: "doctor-launch-599",
@@ -120,6 +122,9 @@ const apiReference = {
     "GET /api/health-support/schemes",
     "GET /api/health-support/insurance",
     "GET /api/auth/otp/config",
+    "GET /api/auth/google/config",
+    "POST /api/auth/google/patient",
+    "POST /api/auth/google/doctor",
     "POST /api/auth/verify-widget-token",
     "POST /api/auth/patient/identity/start",
     "POST /api/auth/patient/identity/complete",
@@ -157,6 +162,59 @@ const verified = item => {
 const jsonClone = value => JSON.parse(JSON.stringify(value));
 const displayTimeAgo = () => "Just now";
 const phoneDigits = value => String(value || "").replace(/\D/g, "").slice(-10);
+const normalizedEmail = value => String(value || "").trim().toLowerCase();
+
+function decodeBase64UrlJson(value) {
+  try {
+    return JSON.parse(Buffer.from(String(value || ""), "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function googleJwks(providerFetch = fetch) {
+  if (googleIdentityKeys.keys.length && googleIdentityKeys.expiresAt > Date.now()) return googleIdentityKeys.keys;
+  const response = await providerFetch("https://www.googleapis.com/oauth2/v3/certs", {
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw new Error("Google signing keys are unavailable");
+  const payload = await response.json();
+  const cacheControl = String(response.headers.get("cache-control") || "");
+  const maxAge = Number(cacheControl.match(/max-age=(\d+)/i)?.[1] || 3600);
+  googleIdentityKeys = {
+    expiresAt: Date.now() + Math.max(300, maxAge) * 1000,
+    keys: Array.isArray(payload.keys) ? payload.keys : []
+  };
+  return googleIdentityKeys.keys;
+}
+
+async function verifyGoogleIdentityCredential(credential, clientId, providerFetch = fetch) {
+  const parts = String(credential || "").split(".");
+  if (parts.length !== 3) throw new Error("Invalid Google ID token");
+  const header = decodeBase64UrlJson(parts[0]);
+  const payload = decodeBase64UrlJson(parts[1]);
+  if (!header || !payload || header.alg !== "RS256" || !header.kid) throw new Error("Invalid Google ID token");
+  const key = (await googleJwks(providerFetch)).find(item => item.kid === header.kid && item.kty === "RSA");
+  if (!key) throw new Error("Google signing key was not found");
+  const validSignature = verifySignature(
+    "RSA-SHA256",
+    Buffer.from(`${parts[0]}.${parts[1]}`),
+    createPublicKey({ key, format: "jwk" }),
+    Buffer.from(parts[2], "base64url")
+  );
+  const now = Math.floor(Date.now() / 1000);
+  const validIssuer = ["accounts.google.com", "https://accounts.google.com"].includes(payload.iss);
+  const validAudience = Array.isArray(payload.aud)
+    ? payload.aud.includes(clientId) && (!payload.azp || payload.azp === clientId)
+    : payload.aud === clientId;
+  const validTiming = Number(payload.exp || 0) > now
+    && Number(payload.iat || 0) <= now + 300
+    && (!payload.nbf || Number(payload.nbf) <= now + 300);
+  if (!validSignature || !validIssuer || !validAudience || !validTiming) {
+    throw new Error("Google ID token verification failed");
+  }
+  return payload;
+}
 
 async function providerJson(response) {
   const text = await response.text();
@@ -1250,6 +1308,8 @@ async function routeApi(request, response, url, store, runtime = {}) {
   const database = store.snapshot();
   const providerFetch = runtime.providerFetch || fetch;
   const locationApiKey = String(runtime.googleMapsServerApiKey ?? googleMapsServerApiKey).trim();
+  const googleClientId = String(runtime.googleIdentityClientId ?? googleIdentityClientId).trim();
+  const googleCredentialVerifier = runtime.verifyGoogleIdentityCredential || verifyGoogleIdentityCredential;
   const runtimeLogger = runtime.logger || console;
   const useIdentitySandbox = runtime.identitySandboxEnabled ?? identitySandboxEnabled;
   const useOtpSandbox = runtime.otpSandboxEnabled ?? otpSandboxEnabled;
@@ -1329,6 +1389,87 @@ async function routeApi(request, response, url, store, runtime = {}) {
         error: { message: "Live SMS OTP is not configured" }
       });
     }
+    return true;
+  }
+
+  if (pathname === "/api/auth/google/config" && method === "GET") {
+    sendJson(response, 200, {
+      enabled: Boolean(googleClientId),
+      clientId: googleClientId || undefined
+    });
+    return true;
+  }
+
+  const googleAuthMatch = pathname.match(/^\/api\/auth\/google\/(patient|doctor)$/);
+  if (googleAuthMatch && method === "POST") {
+    if (!googleClientId) {
+      sendError(response, 503, "Google sign-in is not configured");
+      return true;
+    }
+    const input = await readJson(request);
+    const credential = String(input.credential || "").trim();
+    if (!credential || credential.length > 16_384) {
+      sendError(response, 422, "A valid Google credential is required");
+      return true;
+    }
+    let googleProfile;
+    try {
+      googleProfile = await googleCredentialVerifier(credential, googleClientId, providerFetch);
+    } catch (error) {
+      runtimeLogger.warn?.(`[SehatLine Auth] Google credential rejected: ${error.message}`);
+      sendError(response, 401, "Google sign-in could not be verified");
+      return true;
+    }
+    const email = normalizedEmail(googleProfile.email);
+    const emailVerified = googleProfile.email_verified === true || googleProfile.email_verified === "true";
+    if (!email || !emailVerified || !googleProfile.sub) {
+      sendError(response, 403, "A verified Google email address is required");
+      return true;
+    }
+
+    if (googleAuthMatch[1] === "doctor") {
+      const matchedDoctor = database.doctors.find(item => normalizedEmail(item.email) === email && verified(item));
+      if (!matchedDoctor) {
+        sendError(response, 403, "This Google email is not linked to an approved doctor");
+        return true;
+      }
+      await store.mutate(data => {
+        const doctor = data.doctors.find(item => item.id === matchedDoctor.id);
+        if (doctor) Object.assign(doctor, { googleSubject: googleProfile.sub, lastActive: "Just now", updatedAt: new Date().toISOString() });
+      });
+      const token = `doctor-${randomUUID()}`;
+      doctorSessions.set(token, matchedDoctor.id);
+      sendJson(response, 200, {
+        verified: true,
+        provider: "google",
+        token,
+        doctor: publicDoctor(store.snapshot().doctors.find(item => item.id === matchedDoctor.id) || matchedDoctor)
+      });
+      return true;
+    }
+
+    let user;
+    await store.mutate(data => {
+      const index = data.users.findIndex(item => item.googleSubject === googleProfile.sub || normalizedEmail(item.email) === email);
+      const existing = index >= 0 ? data.users[index] : {};
+      user = {
+        ...existing,
+        id: existing.id || slugId("user"),
+        name: existing.name || firstText(googleProfile.name, googleProfile.given_name, "SehatLine Member"),
+        email,
+        googleSubject: googleProfile.sub,
+        photoUrl: existing.photoUrl || firstText(googleProfile.picture),
+        bookings: numeric(existing.bookings),
+        lastActive: "Just now",
+        status: "active",
+        authProvider: "google"
+      };
+      if (index >= 0) data.users[index] = user;
+      else data.users.push(user);
+    });
+    const token = `patient-${randomUUID()}`;
+    patientSessions.set(token, user.id);
+    sendJson(response, 200, { verified: true, provider: "google", token, user });
     return true;
   }
 
@@ -2923,6 +3064,8 @@ export async function createSehatLineServer(options = {}) {
         uploadRoot: options.uploadRoot,
         providerFetch: options.providerFetch,
         googleMapsServerApiKey: options.googleMapsServerApiKey,
+        googleIdentityClientId: options.googleIdentityClientId,
+        verifyGoogleIdentityCredential: options.verifyGoogleIdentityCredential,
         logger,
         razorpayKeyId: options.razorpayKeyId,
         razorpayKeySecret: options.razorpayKeySecret,

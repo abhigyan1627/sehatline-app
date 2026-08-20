@@ -795,6 +795,69 @@ strong {
   flex: 1;
 }
 
+.auth-method-divider {
+  margin: 15px 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-faint);
+  font-size: 9px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.auth-method-divider::before,
+.auth-method-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--line);
+}
+
+.google-signin-slot {
+  min-height: 44px;
+  display: flex;
+  justify-content: center;
+}
+
+.google-signin-slot > div,
+.google-signin-slot iframe {
+  max-width: 100%;
+}
+
+.google-signin-fallback {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.google-signin-fallback:hover {
+  border-color: var(--text-soft);
+  background: var(--surface-muted);
+}
+
+.google-signin-fallback span {
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.google-auth-error {
+  min-height: 16px;
+  margin: 5px 0 0;
+  color: var(--red);
+  font-size: 10px;
+  text-align: center;
+}
+
 .doctor-join-prompt {
   margin-top: 14px;
   padding: 11px 12px;

@@ -16,9 +16,9 @@
   <title>SehatLine Doctor</title>
   <link rel="stylesheet" href="/assets/motion/sehatline-motion.css?v=3">
   <link rel="stylesheet" href="/assets/pwa/install-prompt.css?v=1">
-  <link rel="stylesheet" href="./styles.css?v=13">
+  <link rel="stylesheet" href="./styles.css?v=14">
   <link rel="stylesheet" href="/assets/care/care-background.css?v=1">
-  <link rel="stylesheet" href="/assets/footer/site-footer.css?v=11">
+  <link rel="stylesheet" href="/assets/footer/site-footer.css?v=12">
 </head>
 <body data-pwa-id="doctor" data-pwa-name="SehatLine Doctor" data-pwa-icon="/doctor/app-icon.png">
   <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -113,7 +113,7 @@
             </span>
             <span class="eyebrow">Doctor workspace</span>
             <h2 id="auth-title">Welcome back, Doctor</h2>
-            <p class="auth-subtitle">Sign in with the mobile number registered with your clinic.</p>
+            <p class="auth-subtitle">Sign in with the mobile number or Google email approved for your clinic.</p>
 
             <form id="phone-form" novalidate>
               <label for="phone">Mobile number</label>
@@ -127,6 +127,12 @@
                 <span>Continue securely</span><svg><use href="#i-arrow"></use></svg>
               </button>
             </form>
+
+            <div class="auth-method-divider"><span>or</span></div>
+            <div class="google-signin-slot" id="doctor-google-button" aria-label="Continue with Google">
+              <button class="google-signin-fallback" id="doctor-google-fallback" type="button"><span>G</span> Continue with Google</button>
+            </div>
+            <p class="google-auth-error" id="google-auth-error" role="alert"></p>
 
             <div class="doctor-join-prompt">
               <span class="join-prompt-icon" aria-hidden="true"><svg><use href="#i-shield"></use></svg></span>
@@ -555,6 +561,6 @@
   <script src="/assets/footer/site-footer.js?v=12" defer></script>
   <script src="/assets/motion/sehatline-motion.js?v=3" defer></script>
   <script src="/assets/pwa/install-prompt.js?v=6" defer></script>
-  <script src="./app.js?v=10" defer></script>
+  <script src="./app.js?v=11" defer></script>
 </body>
 </html>

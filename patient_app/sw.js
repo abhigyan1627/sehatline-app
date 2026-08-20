@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "sehatline-patient-";
-const CACHE = `${CACHE_PREFIX}v36`;
+const CACHE = `${CACHE_PREFIX}v37`;
 const APP_SHELL = [
   "./",
   "./index.html",

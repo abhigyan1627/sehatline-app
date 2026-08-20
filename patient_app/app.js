@@ -319,6 +319,7 @@ const state = {
   otpProviderMode: "",
   otpWidgetRequestId: "",
   authToken: localStorage.getItem("sehatline-auth-token") || "",
+  pendingAuthAction: null,
   chat: [],
   aiThinking: false,
   aiListening: false,
@@ -1509,6 +1510,7 @@ function openModal(content, wide = false) {
 function closeModal() {
   const root = document.querySelector("#modalRoot");
   if (root.dataset.authRequired === "true" && root.dataset.authDismissible !== "true" && !state.authToken) return;
+  if (root.dataset.authRequired === "true" && !state.authToken) state.pendingAuthAction = null;
   closeQueueTimer();
   closeOtpTimer();
   const cleanup = () => {
@@ -2285,6 +2287,104 @@ function authProgress(activeStep) {
   </div>`;
 }
 
+let googleIdentityReadyPromise = null;
+let googleIdentityClientId = "";
+
+function loadGoogleIdentityScript() {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (googleIdentityReadyPromise) return googleIdentityReadyPromise;
+  googleIdentityReadyPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+    const script = existing || document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.addEventListener("load", resolve, { once: true });
+    script.addEventListener("error", () => reject(new Error("Google sign-in could not be loaded")), { once: true });
+    if (!existing) document.head.append(script);
+  }).catch(error => {
+    googleIdentityReadyPromise = null;
+    throw error;
+  });
+  return googleIdentityReadyPromise;
+}
+
+async function resumePendingPatientAction() {
+  const pending = state.pendingAuthAction;
+  state.pendingAuthAction = null;
+  if (!pending) return;
+  await new Promise(resolve => setTimeout(resolve, 280));
+  if (pending.type === "book-doctor") {
+    state.bookingDraft = {};
+    await openBooking(pending.id, 1);
+  } else if (pending.type === "book-lab") {
+    openLabBooking(pending.id);
+  }
+}
+
+async function completePatientSignIn(payload, message = "Signed in securely") {
+  state.authToken = payload?.token || "";
+  if (!state.authToken) throw new Error("A SehatLine session was not created");
+  localStorage.setItem("sehatline-auth-token", state.authToken);
+  await hydrateRemoteData();
+  await loadSavedItems();
+  const root = document.querySelector("#modalRoot");
+  delete root.dataset.authRequired;
+  closeModal();
+  toast(message);
+  await resumePendingPatientAction();
+}
+
+async function handlePatientGoogleCredential(response) {
+  if (!response?.credential) {
+    toast("Google sign-in was cancelled", "alert");
+    return;
+  }
+  try {
+    const payload = await apiRequest("/api/auth/google/patient", {
+      method: "POST",
+      body: JSON.stringify({ credential: response.credential }),
+      timeoutMs: 15_000
+    });
+    await completePatientSignIn(payload, "Signed in with Google");
+  } catch (error) {
+    toast(error.message || "Google sign-in could not be completed", "alert");
+  }
+}
+
+async function renderPatientGoogleButton() {
+  const container = document.querySelector("#patientGoogleButton");
+  if (!container) return;
+  try {
+    const config = await apiRequest("/api/auth/google/config", { timeoutMs: 5000 });
+    if (!config?.enabled || !config.clientId) return;
+    await loadGoogleIdentityScript();
+    if (!document.contains(container)) return;
+    if (googleIdentityClientId !== config.clientId) {
+      window.google.accounts.id.initialize({
+        client_id: config.clientId,
+        callback: handlePatientGoogleCredential,
+        auto_select: false,
+        cancel_on_tap_outside: true
+      });
+      googleIdentityClientId = config.clientId;
+    }
+    container.replaceChildren();
+    window.google.accounts.id.renderButton(container, {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text: state.authMode === "signup" ? "signup_with" : "continue_with",
+      shape: "rectangular",
+      logo_alignment: "left",
+      width: Math.max(240, Math.min(360, Math.round(container.getBoundingClientRect().width || 320)))
+    });
+    container.dataset.ready = "true";
+  } catch {
+    // Keep the simple fallback visible when Google has not been configured yet.
+  }
+}
+
 function openAuth(mode = state.authMode) {
   state.authMode = mode === "signup" ? "signup" : "login";
   const isSignup = state.authMode === "signup";
@@ -2316,11 +2416,16 @@ function openAuth(mode = state.authMode) {
         </div>
         ${isSignup ? `<label class="auth-consent"><input id="signupConsent" type="checkbox"><span>I agree to the Terms and Privacy Notice and consent to mobile verification. Aadhaar consent will be requested separately.</span></label>` : ""}
         <button class="btn btn-primary btn-block auth-primary" data-action="send-otp">${svg("lock")} Continue securely</button>
+        <div class="auth-method-divider"><span>or</span></div>
+        <div class="google-signin-slot" id="patientGoogleButton" aria-label="Continue with Google">
+          <button class="google-signin-fallback" type="button" data-action="google-signin-unavailable"><span>G</span> Continue with Google</button>
+        </div>
         <div class="auth-privacy-note">${svg("shield")} We do not store raw Aadhaar numbers, face images or biometric templates.</div>
       </section>
     </div>`, true);
   lockAuthModal();
   document.querySelector("#authPhone")?.focus();
+  requestAnimationFrame(renderPatientGoogleButton);
 }
 
 function phoneDigitsForInput(value) {
@@ -2840,10 +2945,22 @@ document.addEventListener("click", (event) => {
       loadPatientEcosystemRoute();
     },
     "book-doctor": () => {
+      if (!state.authToken) {
+        state.pendingAuthAction = { type: "book-doctor", id };
+        openAuth("login");
+        return;
+      }
       state.bookingDraft = {};
       openBooking(id, 1);
     },
-    "book-lab": () => openLabBooking(id),
+    "book-lab": () => {
+      if (!state.authToken) {
+        state.pendingAuthAction = { type: "book-lab", id };
+        openAuth("login");
+        return;
+      }
+      openLabBooking(id);
+    },
     queue: () => openQueue(id),
     "show-compare": () => openCompare(type),
     "compare-doctor": () => {
@@ -3024,6 +3141,7 @@ document.addEventListener("click", (event) => {
       openAuth("signup");
     },
     "auth-back": () => openAuth(state.authMode),
+    "google-signin-unavailable": () => toast("Google sign-in is being connected. Please use mobile OTP for now.", "info"),
     "identity-back": openIdentityStep,
     "send-otp": () => requestOtpDelivery(),
     "resend-otp": () => requestOtpDelivery({ resend: true }),
@@ -3064,14 +3182,7 @@ document.addEventListener("click", (event) => {
         openSignupProfileStep();
         return;
       }
-      state.authToken = payload.token || "";
-      if (state.authToken) localStorage.setItem("sehatline-auth-token", state.authToken);
-      await hydrateRemoteData();
-      await loadSavedItems();
-      const root = document.querySelector("#modalRoot");
-      delete root.dataset.authRequired;
-      closeModal();
-      toast("Signed in securely");
+      await completePatientSignIn(payload);
     },
     "continue-identity": async () => {
       const name = document.querySelector("#authName")?.value.trim() || "";
@@ -3150,6 +3261,7 @@ document.addEventListener("click", (event) => {
       delete root.dataset.authRequired;
       closeModal();
       toast("Account created securely", "shield");
+      resumePendingPatientAction();
     },
     voice: startVoiceAssistant
   };
@@ -3295,7 +3407,6 @@ hydrateIcons();
 render();
 setTimeout(() => {
   document.querySelector("#splash")?.classList.add("hidden");
-  if (!state.authToken) openAuth();
 }, 1900);
 hydrateRemoteData().then(async () => { await loadSavedItems(); await loadPatientEcosystemRoute(); });
 
